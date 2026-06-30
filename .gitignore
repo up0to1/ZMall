@@ -1,0 +1,48 @@
+# ===== Java / Maven =====
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+*.ctxt
+.mtj.tmp/
+hs_err_pid*
+
+# ===== IDE =====
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+.eclipse/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ===== Maven =====
+dependency-reduced-pom.xml
+
+# ===== Database SQL =====
+zmall/db/
+
+# ===== Logs =====
+zmall/logs/
+logs/
+
+# ===== Nginx =====
+zmall-nginx/logs/
+
+# ===== Nacos =====
+nacos/
+
+# ===== Sentinel =====
+sentinel-dashboard.jar

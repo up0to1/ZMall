@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>个人中心 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <style>
+    .profile-page { max-width: 1000px; margin: 0 auto; padding: 20px; }
+    .profile-page h2 { font-size: 22px; margin-bottom: 20px; color: #333; }
+    .section { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+    .section h3 { font-size: 16px; color: #333; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0; }
+    /* 用户信息 */
+    .info-form { max-width: 500px; }
+    .info-form .form-row { display: flex; align-items: center; margin-bottom: 16px; }
+    .info-form .form-row label { width: 80px; text-align: right; color: #666; font-size: 14px; margin-right: 12px; }
+    .info-form .form-row input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    .info-form .form-row input:focus { border-color: #e54346; outline: none; }
+    .info-form .form-row .static { padding: 8px 0; font-size: 14px; color: #333; }
+    .btn-save { padding: 10px 30px; background: #e54346; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+    .btn-save:hover { background: #c73032; }
+    /* 地址列表 */
+    .addr-list { display: flex; flex-wrap: wrap; gap: 16px; }
+    .addr-card { width: 300px; border: 1px solid #eee; border-radius: 6px; padding: 16px; position: relative; transition: box-shadow 0.2s; }
+    .addr-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .addr-card.default { border-color: #e54346; }
+    .addr-card .default-tag { position: absolute; top: 0; right: 0; background: #e54346; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 0 6px 0 6px; }
+    .addr-card .contact { font-weight: bold; font-size: 15px; color: #333; margin-bottom: 6px; }
+    .addr-card .phone { font-size: 13px; color: #666; margin-bottom: 6px; }
+    .addr-card .detail { font-size: 13px; color: #999; line-height: 1.5; margin-bottom: 10px; }
+    .addr-card .actions { display: flex; gap: 10px; font-size: 13px; }
+    .addr-card .actions a { color: #666; text-decoration: none; cursor: pointer; }
+    .addr-card .actions a:hover { color: #e54346; }
+    .addr-card .actions a.del:hover { color: #e54346; }
+    .addr-card .actions a.set-default { color: #e54346; }
+    .btn-add-addr { width: 300px; height: 120px; border: 2px dashed #ddd; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 16px; color: #999; cursor: pointer; background: #fafafa; }
+    .btn-add-addr:hover { border-color: #e54346; color: #e54346; }
+    /* 地址弹窗 */
+    .modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .modal-box { background: #fff; border-radius: 8px; width: 480px; padding: 24px; }
+    .modal-box h3 { font-size: 18px; margin-bottom: 18px; color: #333; }
+    .modal-box .form-row { margin-bottom: 14px; }
+    .modal-box .form-row label { display: block; margin-bottom: 4px; font-size: 13px; color: #666; }
+    .modal-box .form-row input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+    .modal-box .form-row input:focus { border-color: #e54346; outline: none; }
+    .modal-box .form-row .checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+    .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; }
+    .modal-actions button { padding: 8px 24px; border-radius: 4px; font-size: 14px; cursor: pointer; border: none; }
+    .modal-actions .btn-confirm { background: #e54346; color: #fff; }
+    .modal-actions .btn-cancel { background: #f0f0f0; color: #333; }
+    .msg { color: #e54346; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="profile-page">
+    <h2>个人中心</h2>
+
+    <!-- 用户信息 -->
+    <div class="section">
+      <h3>基本信息</h3>
+      <div class="info-form">
+        <div class="form-row">
+          <label>用户名：</label>
+          <span class="static">{{userInfo.username || '-'}}</span>
+        </div>
+        <div class="form-row">
+          <label>手机号：</label>
+          <input type="text" v-model="editPhone" placeholder="请输入手机号">
+        </div>
+        <div class="form-row">
+          <label>余额：</label>
+          <span class="static">{{formatPrice(userInfo.balance) || '0.00'}} 元</span>
+        </div>
+        <div class="form-row">
+          <label>角色：</label>
+          <span class="static">{{userInfo.role === 2 ? '商家' : '普通用户'}}</span>
+        </div>
+        <div class="msg" v-if="infoMsg" v-text="infoMsg"></div>
+        <button class="btn-save" @click="saveUserInfo">保存修改</button>
+      </div>
+    </div>
+
+    <!-- 修改密码 -->
+    <div class="section">
+      <h3>修改密码</h3>
+      <div class="info-form">
+        <div class="form-row">
+          <label>旧密码：</label>
+          <input type="password" v-model="pwdForm.oldPassword" placeholder="请输入旧密码">
+        </div>
+        <div class="form-row">
+          <label>新密码：</label>
+          <input type="password" v-model="pwdForm.newPassword" placeholder="请输入新密码（6-20位）">
+        </div>
+        <div class="form-row">
+          <label>确认密码：</label>
+          <input type="password" v-model="pwdForm.confirmPassword" placeholder="请再次输入新密码">
+        </div>
+        <div class="msg" v-if="pwdMsg" v-text="pwdMsg"></div>
+        <button class="btn-save" @click="changePassword">修改密码</button>
+      </div>
+    </div>
+
+    <!-- 余额充值 -->
+    <div class="section">
+      <h3>余额充值</h3>
+      <div class="info-form">
+        <div class="form-row">
+          <label>当前余额：</label>
+          <span class="static" style="color:#e54346;font-weight:bold;font-size:18px;">￥{{formatPrice(userInfo.balance) || '0.00'}}</span>
+        </div>
+        <div class="form-row">
+          <label>充值金额：</label>
+          <input type="number" v-model.number="rechargeAmount" placeholder="请输入充值金额（元）" min="1" step="1">
+        </div>
+        <div class="form-row" style="gap:8px;">
+          <label></label>
+          <span v-for="amt in [10,50,100,200,500]" :key="amt" style="padding:4px 12px;border:1px solid #ddd;border-radius:4px;cursor:pointer;font-size:13px;" :style="{borderColor: rechargeAmount===amt?'#e54346':'#ddd', color: rechargeAmount===amt?'#e54346':'#666'}" @click="rechargeAmount=amt">{{amt}}元</span>
+        </div>
+        <div class="msg" v-if="rechargeMsg" v-text="rechargeMsg"></div>
+        <button class="btn-save" @click="doRecharge" :disabled="recharging">{{recharging ? '充值中...' : '立即充值'}}</button>
+      </div>
+    </div>
+
+    <!-- 收货地址 -->
+    <div class="section">
+      <h3>收货地址</h3>
+      <div class="addr-list">
+        <div class="addr-card" :class="{default: addr.isDefault===1}" v-for="addr in addresses" :key="addr.id">
+          <div class="default-tag" v-if="addr.isDefault===1">默认</div>
+          <div class="contact">{{addr.contact}}</div>
+          <div class="phone">{{addr.mobile}}</div>
+          <div class="detail">{{addr.province}}{{addr.city}}{{addr.town}}{{addr.street}}</div>
+          <div class="actions">
+            <a @click="editAddress(addr)">编辑</a>
+            <a class="del" @click="deleteAddress(addr.id)">删除</a>
+            <a v-if="addr.isDefault!==1" class="set-default" @click="setDefault(addr.id)">设为默认</a>
+          </div>
+        </div>
+        <div class="btn-add-addr" @click="addAddress">+ 新增收货地址</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 地址编辑弹窗 -->
+  <div class="modal-mask" v-if="showAddrModal" @click.self="showAddrModal=false">
+    <div class="modal-box">
+      <h3>{{addrForm.id ? '编辑地址' : '新增地址'}}</h3>
+      <div class="form-row">
+        <label>联系人</label>
+        <input type="text" v-model="addrForm.contact" placeholder="请输入联系人姓名">
+      </div>
+      <div class="form-row">
+        <label>手机号</label>
+        <input type="text" v-model="addrForm.mobile" placeholder="请输入手机号">
+      </div>
+      <div class="form-row">
+        <label>省</label>
+        <input type="text" v-model="addrForm.province" placeholder="如：广东省">
+      </div>
+      <div class="form-row">
+        <label>市</label>
+        <input type="text" v-model="addrForm.city" placeholder="如：深圳市">
+      </div>
+      <div class="form-row">
+        <label>区/县</label>
+        <input type="text" v-model="addrForm.town" placeholder="如：南山区">
+      </div>
+      <div class="form-row">
+        <label>详细地址</label>
+        <input type="text" v-model="addrForm.street" placeholder="街道、门牌号等">
+      </div>
+      <div class="form-row">
+        <label>备注</label>
+        <input type="text" v-model="addrForm.notes" placeholder="选填">
+      </div>
+      <div class="form-row">
+        <div class="checkbox-row">
+          <input type="checkbox" v-model="addrForm.isDefault" :true-value="1" :false-value="0">
+          <span>设为默认地址</span>
+        </div>
+      </div>
+      <div class="msg" v-if="addrMsg" v-text="addrMsg"></div>
+      <div class="modal-actions">
+        <button class="btn-confirm" @click="saveAddress">保存</button>
+        <button class="btn-cancel" @click="showAddrModal=false">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    userInfo: {},
+    editPhone: '',
+    infoMsg: '',
+    pwdForm: { oldPassword: '', newPassword: '', confirmPassword: '' },
+    pwdMsg: '',
+    rechargeAmount: null,
+    recharging: false,
+    rechargeMsg: '',
+    addresses: [],
+    showAddrModal: false,
+    addrForm: { id: null, contact: '', mobile: '', province: '', city: '', town: '', street: '', notes: '', isDefault: 0 },
+    addrMsg: ''
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.loadUserInfo();
+    this.loadAddresses();
+  },
+  methods: {
+    loadUserInfo() {
+      axios.get('/users/me').then(res => {
+        this.userInfo = res || {};
+        this.editPhone = res.phone || '';
+      }).catch(() => {});
+    },
+    saveUserInfo() {
+      axios.put('/users/me', { phone: this.editPhone }).then(() => {
+        this.infoMsg = '保存成功';
+        this.userInfo.phone = this.editPhone;
+        setTimeout(() => { this.infoMsg = ''; }, 2000);
+      }).catch(err => {
+        this.infoMsg = (err.response && err.response.data && err.response.data.msg) || '保存失败';
+      });
+    },
+    changePassword() {
+      if (!this.pwdForm.oldPassword) { this.pwdMsg = '请输入旧密码'; return; }
+      if (!this.pwdForm.newPassword || this.pwdForm.newPassword.length < 6) { this.pwdMsg = '新密码长度至少6位'; return; }
+      if (this.pwdForm.newPassword !== this.pwdForm.confirmPassword) { this.pwdMsg = '两次密码不一致'; return; }
+      axios.put('/users/password', { oldPassword: this.pwdForm.oldPassword, newPassword: this.pwdForm.newPassword }).then(() => {
+        this.pwdMsg = '密码修改成功，请重新登录';
+        setTimeout(() => { util.logout(); }, 1500);
+      }).catch(err => {
+        this.pwdMsg = (err.response && err.response.data && err.response.data.msg) || '修改失败';
+      });
+    },
+    doRecharge() {
+      if (!this.rechargeAmount || this.rechargeAmount <= 0) { this.rechargeMsg = '请输入有效的充值金额'; return; }
+      this.recharging = true;
+      this.rechargeMsg = '';
+      // 金额转为分
+      const amountFen = Math.round(this.rechargeAmount * 100);
+      axios.post('/users/recharge', { amount: amountFen }).then(() => {
+        this.recharging = false;
+        this.rechargeMsg = '充值成功！';
+        this.rechargeAmount = null;
+        this.loadUserInfo();
+        setTimeout(() => { this.rechargeMsg = ''; }, 2000);
+      }).catch(err => {
+        this.recharging = false;
+        this.rechargeMsg = (err.response && err.response.data && err.response.data.msg) || '充值失败';
+      });
+    },
+    loadAddresses() {
+      axios.get('/addresses').then(res => {
+        this.addresses = res || [];
+      }).catch(() => {});
+    },
+    addAddress() {
+      this.addrForm = { id: null, contact: '', mobile: '', province: '', city: '', town: '', street: '', notes: '', isDefault: 0 };
+      this.addrMsg = '';
+      this.showAddrModal = true;
+    },
+    editAddress(addr) {
+      this.addrForm = { ...addr };
+      this.addrMsg = '';
+      this.showAddrModal = true;
+    },
+    saveAddress() {
+      const f = this.addrForm;
+      if (!f.contact) { this.addrMsg = '请输入联系人'; return; }
+      if (!f.mobile) { this.addrMsg = '请输入手机号'; return; }
+      if (!f.province || !f.city || !f.town) { this.addrMsg = '请填写完整的省市区'; return; }
+      if (!f.street) { this.addrMsg = '请输入详细地址'; return; }
+
+      const req = f.id
+        ? axios.put('/addresses/' + f.id, f)
+        : axios.post('/addresses', f);
+
+      req.then(() => {
+        this.showAddrModal = false;
+        this.loadAddresses();
+      }).catch(err => {
+        this.addrMsg = (err.response && err.response.data && err.response.data.msg) || '保存失败';
+      });
+    },
+    deleteAddress(id) {
+      if (!confirm('确认删除该地址？')) return;
+      axios.delete('/addresses/' + id).then(() => {
+        this.loadAddresses();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '删除失败');
+      });
+    },
+    setDefault(id) {
+      axios.put('/addresses/' + id + '/default').then(() => {
+        this.loadAddresses();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '设置失败');
+      });
+    },
+    formatPrice(val) { return util.formatPrice(val); }
+  }
+});
+</script>
+</body>
+</html>

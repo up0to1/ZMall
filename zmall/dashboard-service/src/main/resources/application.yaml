@@ -1,0 +1,10 @@
+server:
+  port: 8089
+feign:
+  okhttp:
+    enabled: true
+
+hm:
+  swagger:
+    title: "ZMall数据仪表盘接口文档"
+    package: com.hmall.dashboard.controller

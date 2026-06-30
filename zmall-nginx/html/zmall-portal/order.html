@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>我的订单 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <style>
+    .order-page { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .order-page h2 { font-size: 22px; margin-bottom: 20px; color: #333; }
+    .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0; }
+    .tabs .tab { padding: 10px 24px; font-size: 14px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tabs .tab.active { color: #e54346; border-bottom-color: #e54346; font-weight: bold; }
+    .order-card { background: #fff; border: 1px solid #eee; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+    .order-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #fafafa; border-bottom: 1px solid #eee; font-size: 13px; color: #999; }
+    .order-header .order-no { color: #333; font-weight: bold; }
+    .order-header .status { color: #e54346; font-weight: bold; font-size: 14px; }
+    .order-body { padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
+    .order-body .item-info { flex: 1; }
+    .order-body .item-info .name { font-size: 14px; color: #333; margin-bottom: 4px; }
+    .order-body .item-info .count { font-size: 12px; color: #999; }
+    .order-body .price { font-size: 18px; color: #e54346; font-weight: bold; min-width: 100px; text-align: right; }
+    .order-body .price .yen { font-size: 13px; }
+    .order-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #f0f0f0; }
+    .order-footer .btn { padding: 6px 18px; border-radius: 4px; font-size: 13px; cursor: pointer; border: 1px solid #ddd; background: #fff; color: #666; }
+    .order-footer .btn:hover { border-color: #e54346; color: #e54346; }
+    .order-footer .btn-primary { background: #e54346; color: #fff; border-color: #e54346; }
+    .order-footer .btn-primary:hover { background: #c73032; }
+    .no-data { text-align: center; color: #999; padding: 60px; font-size: 16px; }
+    .pagination { display: flex; justify-content: center; gap: 6px; margin-top: 20px; }
+    .pagination .page-btn { padding: 6px 14px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; cursor: pointer; background: #fff; color: #666; }
+    .pagination .page-btn.active { background: #e54346; color: #fff; border-color: #e54346; }
+    .pagination .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* 评价弹窗 */
+    .modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .modal-box { background: #fff; border-radius: 8px; width: 480px; padding: 24px; }
+    .modal-box h3 { font-size: 18px; margin-bottom: 16px; color: #333; }
+    .modal-box .form-row { margin-bottom: 14px; }
+    .modal-box .form-row label { display: block; margin-bottom: 4px; font-size: 13px; color: #666; }
+    .modal-box .form-row textarea { width: 100%; height: 80px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; resize: vertical; }
+    .modal-box .form-row textarea:focus { border-color: #e54346; outline: none; }
+    .modal-box .form-row .stars { display: flex; gap: 4px; }
+    .modal-box .form-row .stars span { font-size: 24px; cursor: pointer; color: #ddd; }
+    .modal-box .form-row .stars span.active { color: #ff9800; }
+    .modal-box .form-row .upload-area { display: flex; flex-wrap: wrap; gap: 8px; }
+    .modal-box .form-row .upload-area .upload-btn { width: 80px; height: 80px; border: 1px dashed #ddd; border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 24px; color: #999; position: relative; overflow: hidden; }
+    .modal-box .form-row .upload-area .upload-btn:hover { border-color: #e54346; color: #e54346; }
+    .modal-box .form-row .upload-area .upload-btn input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    .modal-box .form-row .upload-area .img-item { width: 80px; height: 80px; border-radius: 4px; position: relative; }
+    .modal-box .form-row .upload-area .img-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
+    .modal-box .form-row .upload-area .img-item .del-btn { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; background: #e54346; color: #fff; border-radius: 50%; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; line-height: 1; }
+    .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 18px; }
+    .modal-actions button { padding: 8px 24px; border-radius: 4px; font-size: 14px; cursor: pointer; border: none; }
+    .modal-actions .btn-confirm { background: #e54346; color: #fff; }
+    .modal-actions .btn-cancel { background: #f0f0f0; color: #333; }
+    .msg { color: #e54346; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="order-page">
+    <h2>我的订单</h2>
+    <div class="tabs">
+      <div class="tab" :class="{active: currentTab===null}" @click="switchTab(null)">全部</div>
+      <div class="tab" :class="{active: currentTab===1}" @click="switchTab(1)">待付款</div>
+      <div class="tab" :class="{active: currentTab===2}" @click="switchTab(2)">待发货</div>
+      <div class="tab" :class="{active: currentTab===3}" @click="switchTab(3)">已到货</div>
+      <div class="tab" :class="{active: currentTab===7}" @click="switchTab(7)">退货中</div>
+      <div class="tab" :class="{active: currentTab===8}" @click="switchTab(8)">退货被拒</div>
+      <div class="tab" :class="{active: currentTab===4}" @click="switchTab(4)">已完成</div>
+      <div class="tab" :class="{active: currentTab===5}" @click="switchTab(5)">已关闭</div>
+    </div>
+
+    <div v-if="orders.length === 0" class="no-data">暂无订单</div>
+    <div v-for="order in orders" :key="order.id" class="order-card">
+      <div class="order-header">
+        <span>订单号：{{order.id}} &nbsp;&nbsp; {{order.createTime}}</span>
+        <span class="status">{{order.statusText}}</span>
+      </div>
+      <div class="order-body">
+        <div class="item-info">
+          <div class="name">{{order.itemName || '商品订单'}}</div>
+          <div class="count">共 {{order.itemCount || 1}} 件商品 &nbsp; {{order.orderType === 2 ? '优惠券订单' : order.orderType === 3 ? '秒杀订单' : ''}}</div>
+        </div>
+        <div class="price"><span class="yen">￥</span>{{formatPrice(order.totalFee)}}</div>
+      </div>
+      <div class="order-footer">
+        <button v-if="order.status===1" class="btn-primary btn" @click="cancelOrder(order.id)">取消订单</button>
+        <button v-if="order.status===1" class="btn-primary btn" @click="payOrder(order.id)">去支付</button>
+        <button v-if="order.status===2" class="btn" @click="applyRefund(order.id)">申请退款</button>
+        <button v-if="order.status===3" class="btn" @click="applyReturn(order.id)">申请退货</button>
+        <button v-if="order.status===3" class="btn-primary btn" @click="confirmReceive(order.id)">确认收货</button>
+        <button v-if="order.status===7" class="btn" @click="cancelReturn(order.id)">取消退货</button>
+        <button v-if="order.status===8" class="btn-primary btn" @click="applyReturn(order.id)">再次申请退货</button>
+        <button v-if="order.status===8" class="btn" @click="confirmReceive(order.id)">确认收货</button>
+        <button v-if="order.status===4" class="btn" @click="openComment(order)">评价</button>
+      </div>
+    </div>
+
+    <div class="pagination" v-if="totalPages > 1">
+      <span style="font-size:13px;color:#666;margin-right:8px;">共 {{total}} 条</span>
+      <span style="font-size:13px;color:#666;margin-right:8px;">共 {{totalPages}} 页</span>
+      <button class="page-btn" :disabled="page<=1" @click="page--;loadOrders()">上一页</button>
+      <button class="page-btn" :class="{active: p===page}" v-for="p in pageNumbers" :key="p" @click="page=p;loadOrders()">{{p}}</button>
+      <button class="page-btn" :disabled="page>=totalPages" @click="page++;loadOrders()">下一页</button>
+      <span style="font-size:13px;color:#666;margin-left:8px;">跳至</span>
+      <input type="number" v-model.number="jumpPage" min="1" :max="totalPages" style="width:40px;text-align:center;border:1px solid #ddd;border-radius:3px;padding:4px;" @keyup.enter="goToPage">
+      <span style="font-size:13px;color:#666;">页</span>
+      <button class="page-btn" @click="goToPage">确定</button>
+    </div>
+  </div>
+
+  <!-- 评价弹窗 -->
+  <div class="modal-mask" v-if="showComment" @click.self="showComment=false">
+    <div class="modal-box">
+      <h3>评价订单</h3>
+      <div class="form-row">
+        <label>评分</label>
+        <div class="stars">
+          <span v-for="s in 5" :key="s" :class="{active: s<=commentForm.rating}" @click="commentForm.rating=s">★</span>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>评价内容</label>
+        <textarea v-model="commentForm.content" placeholder="请输入评价内容"></textarea>
+      </div>
+      <div class="form-row">
+        <label>上传图片（最多3张）</label>
+        <div class="upload-area">
+          <div class="img-item" v-for="(img, i) in commentImages" :key="i">
+            <img :src="img">
+            <div class="del-btn" @click="removeCommentImage(i)">×</div>
+          </div>
+          <div class="upload-btn" v-if="commentImages.length < 3">
+            +
+            <input type="file" accept="image/*" @change="uploadCommentImage">
+          </div>
+        </div>
+      </div>
+      <div class="msg" v-if="commentMsg" v-text="commentMsg"></div>
+      <div class="modal-actions">
+        <button class="btn-confirm" @click="submitComment">提交评价</button>
+        <button class="btn-cancel" @click="showComment=false">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    orders: [],
+    currentTab: null,
+    page: 1,
+    size: 5,
+    total: 0,
+    totalPages: 0,
+    jumpPage: 1,
+    showComment: false,
+    commentForm: { orderId: null, itemId: null, rating: 5, content: '' },
+    commentImages: [],
+    commentMsg: ''
+  },
+  computed: {
+    pageNumbers() {
+      const pages = [];
+      const start = Math.max(1, this.page - 2);
+      const end = Math.min(this.totalPages, this.page + 2);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    }
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.loadOrders();
+  },
+  methods: {
+    goToPage() {
+      const p = parseInt(this.jumpPage);
+      if (p >= 1 && p <= this.totalPages) {
+        this.page = p;
+        this.loadOrders();
+      }
+    },
+    loadOrders() {
+      const params = { page: this.page, size: this.size };
+      if (this.currentTab !== null) params.status = this.currentTab;
+      axios.get('/orders/user/page', { params }).then(res => {
+        this.orders = res.list || [];
+        this.total = res.total || 0;
+        this.totalPages = res.pages || 1;
+      }).catch(() => {});
+    },
+    switchTab(status) {
+      this.currentTab = status;
+      this.page = 1;
+      this.loadOrders();
+    },
+    cancelOrder(id) {
+      if (!confirm('确认取消该订单？')) return;
+      axios.put('/orders/' + id + '/cancel').then(() => {
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '取消失败');
+      });
+    },
+    payOrder(id) {
+      location.href = '/pay.html?id=' + id;
+    },
+    applyRefund(id) {
+      if (!confirm('确认申请退款？待发货订单退款将直接成功。')) return;
+      axios.put('/orders/' + id + '/refund').then(() => {
+        alert('退款成功！');
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '退款失败');
+      });
+    },
+    applyReturn(id) {
+      if (!confirm('确认申请退货？退货申请需要商家审核。')) return;
+      axios.put('/orders/' + id + '/return').then(() => {
+        alert('退货申请已提交，等待商家审核');
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '申请退货失败');
+      });
+    },
+    cancelReturn(id) {
+      if (!confirm('确认取消退货？取消后订单将恢复为已到货状态。')) return;
+      axios.put('/orders/' + id + '/cancel-return').then(() => {
+        alert('已取消退货');
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '取消退货失败');
+      });
+    },
+    confirmReceive(id) {
+      if (!confirm('确认收货？确认收货后不可再申请退货/退款。')) return;
+      axios.put('/orders/' + id + '/confirm').then(() => {
+        alert('确认收货成功！');
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '确认收货失败');
+      });
+    },
+    openComment(order) {
+      this.commentForm = { orderId: order.id, itemId: null, rating: 5, content: '' };
+      this.commentImages = [];
+      this.commentMsg = '';
+      // 查询订单详情获取itemId
+      axios.get('/orders/' + order.id).then(res => {
+        if (res && res.orderDetails && res.orderDetails.length > 0) {
+          this.commentForm.itemId = res.orderDetails[0].itemId;
+        }
+        this.showComment = true;
+      }).catch(() => {
+        this.showComment = true;
+      });
+    },
+    uploadCommentImage(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { this.commentMsg = '只能上传图片'; return; }
+      if (file.size > 5 * 1024 * 1024) { this.commentMsg = '图片不能超过5MB'; return; }
+      const formData = new FormData();
+      formData.append('file', file);
+      axios.post('/comments/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(res => {
+        const path = typeof res === 'string' ? res : (res.data || '');
+        if (path) {
+          this.commentImages.push(path);
+          this.commentMsg = '';
+        } else {
+          this.commentMsg = '上传失败';
+        }
+        e.target.value = '';
+      }).catch(() => {
+        this.commentMsg = '图片上传失败';
+        e.target.value = '';
+      });
+    },
+    removeCommentImage(i) {
+      this.commentImages.splice(i, 1);
+    },
+    submitComment() {
+      if (!this.commentForm.content) { this.commentMsg = '请输入评价内容'; return; }
+      if (this.commentForm.rating < 1) { this.commentMsg = '请选择评分'; return; }
+      if (!this.commentForm.itemId) { this.commentMsg = '缺少商品信息，无法评价'; return; }
+      const data = { ...this.commentForm };
+      if (this.commentImages.length > 0) {
+        data.images = JSON.stringify(this.commentImages);
+      }
+      axios.post('/comments', data).then(() => {
+        // 评价成功后更新订单状态为已评价
+        axios.put('/orders/' + this.commentForm.orderId + '/comment').catch(() => {});
+        this.showComment = false;
+        this.loadOrders();
+        alert('评价成功！');
+      }).catch(err => {
+        this.commentMsg = (err.response && err.response.data && err.response.data.msg) || '评价失败';
+      });
+    },
+    formatPrice(val) { return util.formatPrice(val); }
+  }
+});
+</script>
+</body>
+</html>

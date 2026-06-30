@@ -1,0 +1,383 @@
+/* ZMall Admin - 全局样式 */
+html, body {
+    height: 100%;
+    margin: 0;
+    font-size: 14px;
+    font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+    background: #f0f2f5;
+}
+
+#app {
+    height: 100%;
+}
+
+/* ========== 登录页 ========== */
+.login-wrapper {
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    position: relative;
+    overflow: hidden;
+}
+
+.login-wrapper::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(229, 67, 70, 0.1) 0%, transparent 50%);
+    animation: pulse 6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+.login-card {
+    width: 400px;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+}
+
+.login-header {
+    background: linear-gradient(135deg, #e54346 0%, #c0392b 100%);
+    padding: 30px;
+    text-align: center;
+    color: #fff;
+}
+
+.login-header h1 {
+    margin: 0 0 5px;
+    font-size: 26px;
+    letter-spacing: 2px;
+}
+
+.login-header p {
+    margin: 0;
+    font-size: 13px;
+    opacity: 0.85;
+}
+
+.login-body {
+    padding: 30px;
+    background: #fff;
+}
+
+.login-body .el-input__inner {
+    height: 44px;
+}
+
+.login-body .el-form-item:last-child {
+    text-align: center;
+    margin-bottom: 0;
+}
+
+.login-body .el-button--primary {
+    width: 100%;
+    height: 48px;
+    font-size: 16px;
+    letter-spacing: 4px;
+    background: linear-gradient(135deg, #e54346 0%, #c0392b 100%);
+    border-color: #c0392b;
+    border-radius: 6px;
+}
+
+.login-body .el-button--primary:hover {
+    background: linear-gradient(135deg, #f05658 0%, #d44637 100%);
+}
+
+/* ========== 主布局 ========== */
+.admin-layout {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.admin-header {
+    height: 56px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+}
+
+.admin-header .logo-area {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 280px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.admin-header .logo-area .logo-text {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #e54346;
+}
+
+.admin-header .logo-area .logo-sub {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.admin-header .header-right {
+    flex: 1;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 15px;
+}
+
+.admin-header .header-right .el-dropdown-link {
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.admin-container {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.admin-aside {
+    width: 280px;
+    background: #1a1a2e;
+    overflow-y: auto;
+    flex-shrink: 0;
+    transition: width 0.3s;
+}
+
+.admin-aside .el-menu {
+    border-right: none;
+}
+
+.admin-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: #f0f2f5;
+}
+
+/* ========== 侧边栏样式覆盖 ========== */
+.admin-aside .el-menu-item,
+.admin-aside .el-submenu__title {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.admin-aside .el-menu-item:hover,
+.admin-aside .el-submenu__title:hover {
+    color: #fff;
+    background: rgba(229, 67, 70, 0.15) !important;
+}
+
+.admin-aside .el-menu-item.is-active {
+    color: #e54346 !important;
+    background: rgba(229, 67, 70, 0.1) !important;
+    border-right: 3px solid #e54346;
+}
+
+.admin-aside .el-submenu .el-menu-item {
+    padding-left: 50px !important;
+    min-width: auto;
+}
+
+/* ========== 仪表盘 ========== */
+.dashboard-container {
+    padding: 0;
+}
+
+.stat-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.stat-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.stat-card .stat-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.stat-card .stat-icon.red { background: linear-gradient(135deg, #e54346, #c0392b); }
+.stat-card .stat-icon.blue { background: linear-gradient(135deg, #3498db, #2980b9); }
+.stat-card .stat-icon.green { background: linear-gradient(135deg, #27ae60, #219a52); }
+.stat-card .stat-icon.orange { background: linear-gradient(135deg, #f39c12, #e67e22); }
+
+.stat-card .stat-info .stat-label {
+    font-size: 13px;
+    color: #909399;
+    margin-bottom: 4px;
+}
+
+.stat-card .stat-info .stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #303133;
+}
+
+.chart-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.chart-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.chart-card .chart-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #303133;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+/* ========== 通用页面样式 ========== */
+.page-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    margin-bottom: 16px;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.page-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #303133;
+}
+
+.search-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.search-bar .el-input,
+.search-bar .el-select {
+    width: 180px;
+}
+
+/* ========== ElementUI 主题覆盖 ========== */
+.el-button--primary {
+    background: #e54346;
+    border-color: #e54346;
+}
+
+.el-button--primary:hover {
+    background: #f05658;
+    border-color: #f05658;
+}
+
+.el-button--primary.is-plain {
+    color: #e54346;
+    background: rgba(229, 67, 70, 0.1);
+    border-color: rgba(229, 67, 70, 0.4);
+}
+
+.el-button--primary.is-plain:hover {
+    background: #e54346;
+    color: #fff;
+}
+
+.el-pagination.is-background .el-pager li:not(.disabled).active {
+    background-color: #e54346;
+}
+
+.el-tabs__item.is-active {
+    color: #e54346;
+}
+
+.el-tabs__active-bar {
+    background-color: #e54346;
+}
+
+.el-tag--danger {
+    background: rgba(229, 67, 70, 0.1);
+    border-color: rgba(229, 67, 70, 0.3);
+    color: #e54346;
+}
+
+/* ========== 订单详情弹窗 ========== */
+.order-detail .detail-row {
+    display: flex;
+    margin-bottom: 10px;
+}
+
+.order-detail .detail-label {
+    width: 100px;
+    color: #909399;
+    text-align: right;
+    padding-right: 12px;
+    flex-shrink: 0;
+}
+
+.order-detail .detail-value {
+    flex: 1;
+    color: #303133;
+}
+
+/* ========== 响应式 ========== */
+@media (max-width: 1200px) {
+    .stat-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .chart-row {
+        grid-template-columns: 1fr;
+    }
+}

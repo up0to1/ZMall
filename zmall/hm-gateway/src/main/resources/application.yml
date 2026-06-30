@@ -1,0 +1,144 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: gateway
+  autoconfigure:
+    exclude:
+      - com.github.xiaoymin.knife4j.spring.configuration.Knife4jAutoConfiguration
+  cloud:
+    nacos:
+      server-addr: 192.168.59.128:8848
+    gateway:
+      routes:
+        - id: item
+          uri: lb://item-service
+          predicates:
+            - Path=/items/**,/search/**,/categories/**
+        - id: cart
+          uri: lb://cart-service
+          predicates:
+            - Path=/carts/**
+        - id: user
+          uri: lb://user-service
+          predicates:
+            - Path=/users/**,/addresses/**
+        - id: trade
+          uri: lb://trade-service
+          predicates:
+            - Path=/orders/**,/coupons/**
+        - id: pay
+          uri: lb://pay-service
+          predicates:
+            - Path=/pay-orders/**
+        - id: seckill
+          uri: lb://trade-service
+          predicates:
+            - Path=/seckill/**
+        - id: social
+          uri: lb://social-service
+          predicates:
+            - Path=/shop/**,/comments/**,/merchant/profile/**
+        - id: dashboard
+          uri: lb://dashboard-service
+          predicates:
+            - Path=/merchant/dashboard/**
+        - id: item-api-docs
+          uri: lb://item-service
+          predicates:
+            - Path=/item-service/v2/api-docs/**
+          filters:
+            - RewritePath=/item-service/v2/api-docs/(?<segment>.*), /v2/api-docs/$\{segment}
+        - id: cart-api-docs
+          uri: lb://cart-service
+          predicates:
+            - Path=/cart-service/v2/api-docs/**
+          filters:
+            - RewritePath=/cart-service/v2/api-docs/(?<segment>.*), /v2/api-docs/$\{segment}
+        - id: user-api-docs
+          uri: lb://user-service
+          predicates:
+            - Path=/user-service/v2/api-docs/**
+          filters:
+            - RewritePath=/user-service/v2/api-docs/(?<segment>.*), /v2/api-docs/$\{segment}
+        - id: trade-api-docs
+          uri: lb://trade-service
+          predicates:
+            - Path=/trade-service/v2/api-docs/**
+          filters:
+            - RewritePath=/trade-service/v2/api-docs/(?<segment>.*), /v2/api-docs/$\{segment}
+        - id: pay-api-docs
+          uri: lb://pay-service
+          predicates:
+            - Path=/pay-service/v2/api-docs/**
+          filters:
+            - RewritePath=/pay-service/v2/api-docs/(?<segment>.*), /v2/api-docs/$\{segment}
+        - id: social-api-docs
+          uri: lb://social-service
+          predicates:
+            - Path=/social-service/v2/api-docs/**
+          filters:
+            - RewritePath=/social-service/v2/api-docs/(?<segment>.*), /v2/api-docs/$\{segment}
+        - id: dashboard-api-docs
+          uri: lb://dashboard-service
+          predicates:
+            - Path=/dashboard-service/v2/api-docs/**
+          filters:
+            - RewritePath=/dashboard-service/v2/api-docs/(?<segment>.*), /v2/api-docs/$\{segment}
+# Knife4j网关聚合配置
+knife4j:
+  gateway:
+    enabled: true
+    strategy: manual
+    routes:
+      - name: 商品服务
+        service-name: item-service
+        url: /item-service/v2/api-docs
+      - name: 购物车服务
+        service-name: cart-service
+        url: /cart-service/v2/api-docs
+      - name: 用户服务
+        service-name: user-service
+        url: /user-service/v2/api-docs
+      - name: 交易服务
+        service-name: trade-service
+        url: /trade-service/v2/api-docs
+      - name: 支付服务
+        service-name: pay-service
+        url: /pay-service/v2/api-docs
+      - name: 社交服务
+        service-name: social-service
+        url: /social-service/v2/api-docs
+      - name: 仪表盘服务
+        service-name: dashboard-service
+        url: /dashboard-service/v2/api-docs
+hm:
+  jwt:
+    location: classpath:hmall.jks
+    alias: hmall
+    password: hmall123
+    tokenTTL: 30m
+  auth:
+    excludePaths:
+      - /search/**
+      - /users/login
+      - /users/register
+      - /users/money/refund
+      - /items
+      - /items/page
+      - /items/{id}
+      - /comments/item/**
+      - /coupons/available
+      - /coupons/item/**
+      - /seckill/items
+      - /seckill/items/**
+      - /seckill/coupons
+      - /seckill/coupons/**
+      - /shop/info/**
+      - /uploads/**
+      - /hi
+      - /doc.html
+      - /webjars/**
+      - /swagger-resources/**
+      - /v2/api-docs/**
+      - /*/v2/api-docs/**

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>关注与动态 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <style>
+    .follow-page { max-width: 1000px; margin: 0 auto; padding: 20px; }
+    .follow-page h2 { font-size: 22px; margin-bottom: 20px; color: #333; }
+    .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0; }
+    .tabs .tab { padding: 10px 24px; font-size: 14px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tabs .tab.active { color: #e54346; border-bottom-color: #e54346; font-weight: bold; }
+    /* 关注的商家列表 */
+    .shop-list { display: flex; flex-wrap: wrap; gap: 16px; }
+    .shop-card { width: 300px; display: flex; align-items: center; gap: 12px; border: 1px solid #eee; border-radius: 8px; padding: 16px; transition: box-shadow 0.2s; }
+    .shop-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .shop-card .shop-logo { width: 56px; height: 56px; border-radius: 50%; border: 1px solid #eee; flex-shrink: 0; }
+    .shop-card .shop-detail { flex: 1; min-width: 0; }
+    .shop-card .shop-name { font-size: 15px; font-weight: bold; color: #333; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shop-card .shop-desc { font-size: 12px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shop-card .btn-unfollow { padding: 5px 14px; border: 1px solid #ccc; color: #999; background: #f5f5f5; border-radius: 4px; font-size: 12px; cursor: pointer; flex-shrink: 0; }
+    .shop-card .btn-unfollow:hover { border-color: #e54346; color: #e54346; background: #fff; }
+    /* 动态Feed流 */
+    .feed-list { display: flex; flex-direction: column; gap: 16px; }
+    .feed-card { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 20px; }
+    .feed-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .feed-header .shop-logo { width: 40px; height: 40px; border-radius: 50%; border: 1px solid #eee; }
+    .feed-header .shop-name { font-size: 14px; font-weight: bold; color: #333; }
+    .feed-header .feed-time { font-size: 12px; color: #999; margin-left: auto; }
+    .feed-content { font-size: 14px; color: #555; line-height: 1.6; margin-bottom: 10px; }
+    .feed-images { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .feed-images img { width: 120px; height: 120px; object-fit: cover; border-radius: 4px; border: 1px solid #eee; cursor: pointer; }
+    .feed-item-link { display: inline-block; padding: 6px 14px; background: #fef0f0; color: #e54346; border-radius: 4px; font-size: 13px; text-decoration: none; }
+    .feed-item-link:hover { background: #e54346; color: #fff; }
+    .feed-footer { display: flex; align-items: center; gap: 16px; font-size: 13px; color: #999; }
+    .no-data { text-align: center; color: #999; padding: 60px; font-size: 16px; }
+    /* 分页 */
+    .pagination-wrap { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 24px; padding-bottom: 20px; }
+    .pagination-wrap .page-info { font-size: 13px; color: #999; }
+    .pagination-wrap button { min-width: 32px; height: 32px; border: 1px solid #ddd; background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; color: #666; padding: 0 10px; }
+    .pagination-wrap button:hover:not(:disabled) { border-color: #e54346; color: #e54346; }
+    .pagination-wrap button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .pagination-wrap button.active { background: #e54346; color: #fff; border-color: #e54346; }
+    .pagination-wrap .page-jump input { width: 50px; height: 28px; border: 1px solid #ddd; border-radius: 4px; text-align: center; font-size: 13px; outline: none; }
+    .pagination-wrap .page-jump input:focus { border-color: #e54346; }
+    .pagination-wrap .page-jump button { margin-left: 4px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="follow-page">
+    <h2>关注与动态</h2>
+    <div class="tabs">
+      <div class="tab" :class="{active: currentTab==='feed'}" @click="currentTab='feed'">动态</div>
+      <div class="tab" :class="{active: currentTab==='shops'}" @click="currentTab='shops'">关注的商家</div>
+    </div>
+
+    <!-- 动态Feed流 -->
+    <div v-if="currentTab==='feed'">
+      <div v-if="feeds.length === 0" class="no-data">暂无动态，关注商家后即可查看动态</div>
+      <div class="feed-list">
+        <div class="feed-card" v-for="feed in feeds" :key="feed.id">
+          <div class="feed-header">
+            <img class="shop-logo" :src="feed.shopLogo || './img/shop-default.png'" :alt="feed.shopName"/>
+            <span class="shop-name">{{feed.shopName || '商家' + feed.shopId}}</span>
+            <span class="feed-time">{{feed.createTime}}</span>
+          </div>
+          <div class="feed-content">{{feed.content}}</div>
+          <div class="feed-images" v-if="feed.imageList && feed.imageList.length > 0">
+            <img v-for="(img, idx) in feed.imageList" :key="idx" :src="img" @click="window.open(img)"/>
+          </div>
+          <a v-if="feed.itemId" class="feed-item-link" :href="'/item-detail.html?id=' + feed.itemId">查看关联商品</a>
+          <div class="feed-footer">
+            <span>👍 {{feed.liked || 0}}</span>
+          </div>
+        </div>
+      </div>
+      <div class="pagination-wrap" v-if="feedTotal > 0">
+        <span class="page-info">共 {{feedTotal}} 条 / 共 {{feedTotalPages}} 页，当前第 {{feedCurrentPageNum}} 页</span>
+        <button :disabled="!feedHasPrev" @click="feedPrev">上一页</button>
+        <button :disabled="!feedHasNext" @click="feedNext">下一页</button>
+      </div>
+    </div>
+
+    <!-- 关注的商家 -->
+    <div v-if="currentTab==='shops'">
+      <div v-if="followShops.length === 0" class="no-data">暂未关注任何商家</div>
+      <div class="shop-list">
+        <div class="shop-card" v-for="shop in followShops" :key="shop.id">
+          <img class="shop-logo" :src="shop.logo || './img/shop-default.png'" :alt="shop.shopName"/>
+          <div class="shop-detail">
+            <div class="shop-name">{{shop.shopName}}</div>
+            <div class="shop-desc">{{shop.description || '暂无简介'}}</div>
+          </div>
+          <button class="btn-unfollow" @click="unfollow(shop)">取关</button>
+        </div>
+      </div>
+      <div class="pagination-wrap" v-if="shopTotal > 0">
+        <span class="page-info">共 {{shopTotal}} 条 / 共 {{shopPageCount}} 页</span>
+        <button :disabled="shopCurrentPage <= 1" @click="goShopPage(shopCurrentPage - 1)">上一页</button>
+        <button v-for="p in shopVisiblePages" :key="p" :class="{active: p === shopCurrentPage}" @click="goShopPage(p)">{{p}}</button>
+        <button :disabled="shopCurrentPage >= shopPageCount" @click="goShopPage(shopCurrentPage + 1)">下一页</button>
+        <span class="page-jump">跳至 <input v-model.number="shopJumpPage" @keyup.enter="jumpShopPage"/> 页 <button @click="jumpShopPage">GO</button></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    currentTab: 'feed',
+    feeds: [],
+    feedTotal: 0,
+    feedHasNext: false,
+    feedHasPrev: false,
+    feedLastScore: null,
+    feedFirstScore: null,
+    feedPageSize: 10,
+    // 滚动分页历史栈，记录每页的lastScore边界
+    feedPageStack: [],
+    followShops: [],
+    shopCurrentPage: 1,
+    shopPageSize: 12,
+    shopTotal: 0,
+    shopJumpPage: ''
+  },
+  computed: {
+    feedTotalPages() { return Math.ceil(this.feedTotal / this.feedPageSize) || 1; },
+    feedCurrentPageNum() { return this.feedPageStack.length + 1; },
+    shopPageCount() { return Math.ceil(this.shopTotal / this.shopPageSize) || 1; },
+    shopVisiblePages() {
+      const total = this.shopPageCount;
+      const cur = this.shopCurrentPage;
+      let start = Math.max(1, cur - 2);
+      let end = Math.min(total, start + 4);
+      if (end - start < 4) start = Math.max(1, end - 4);
+      const pages = [];
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    }
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.loadFeeds();
+    this.loadFollowShops();
+  },
+  methods: {
+    loadFeeds(lastScore, firstScore) {
+      const params = { size: this.feedPageSize };
+      if (lastScore != null) params.lastScore = lastScore;
+      if (firstScore != null) params.firstScore = firstScore;
+      axios.get('/shop/follow/feed', { params }).then(res => {
+        const data = res || {};
+        this.feeds = (data.list || []).map(f => {
+          if (f.images) {
+            try { f.imageList = JSON.parse(f.images); } catch(e) { f.imageList = []; }
+          } else {
+            f.imageList = [];
+          }
+          return f;
+        });
+        this.feedTotal = data.total || 0;
+        this.feedHasNext = data.hasNext || false;
+        this.feedHasPrev = data.hasPrev || false;
+        this.feedLastScore = data.lastScore;
+        this.feedFirstScore = data.firstScore;
+      }).catch(() => {});
+    },
+    feedNext() {
+      if (!this.feedHasNext) return;
+      // 将当前页的firstScore压入历史栈
+      this.feedPageStack.push(this.feedFirstScore);
+      this.loadFeeds(this.feedLastScore, null);
+    },
+    feedPrev() {
+      if (!this.feedHasPrev) return;
+      // 从历史栈弹出上一页的firstScore
+      const prevFirstScore = this.feedPageStack.pop();
+      if (prevFirstScore != null) {
+        this.loadFeeds(null, prevFirstScore);
+      } else {
+        // 回到首页
+        this.feedPageStack = [];
+        this.loadFeeds();
+      }
+    },
+    loadFollowShops() {
+      axios.get('/shop/follow/list', { params: { page: this.shopCurrentPage, size: this.shopPageSize } }).then(res => {
+        const data = res || {};
+        this.followShops = data.list || [];
+        this.shopTotal = data.total || 0;
+      }).catch(() => {});
+    },
+    goShopPage(p) {
+      if (p < 1) p = 1;
+      if (p > this.shopPageCount) p = this.shopPageCount;
+      this.shopCurrentPage = p;
+      this.loadFollowShops();
+    },
+    jumpShopPage() {
+      let p = parseInt(this.shopJumpPage);
+      if (isNaN(p) || p < 1) p = 1;
+      this.goShopPage(p);
+      this.shopJumpPage = '';
+    },
+    unfollow(shop) {
+      if (!confirm('确认取消关注 ' + shop.shopName + '？')) return;
+      axios.delete('/shop/follow/' + shop.id).then(() => {
+        this.shopCurrentPage = 1;
+        this.feedPageStack = [];
+        this.loadFollowShops();
+        this.loadFeeds();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '取关失败');
+      });
+    }
+  }
+});
+</script>
+</body>
+</html>

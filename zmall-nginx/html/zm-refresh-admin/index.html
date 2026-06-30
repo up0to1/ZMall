@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Michael杂货铺后台管理系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <div id="app">
+        <div class="admin-layout">
+            <header class="admin-header">
+                <div class="logo-area">
+                    <span class="logo-text">Michael杂货铺</span>
+                    <span class="logo-sub">后台管理系统</span>
+                </div>
+                <div class="header-right">
+                    <span style="color:rgba(255,255,255,0.7);font-size:13px;">欢迎回来</span>
+                    <el-dropdown @command="handleCommand">
+                        <span class="el-dropdown-link">
+                            <i class="el-icon-user-solid" style="color:#e54346;"></i>
+                            {{user.username || '管理员'}}
+                            <i class="el-icon-arrow-down el-icon--right"></i>
+                        </span>
+                        <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item command="profile" icon="el-icon-shop">商家信息</el-dropdown-item>
+                            <el-dropdown-item command="password" icon="el-icon-lock">修改密码</el-dropdown-item>
+                            <el-dropdown-item command="logout" icon="el-icon-switch-button" divided>退出登录</el-dropdown-item>
+                        </el-dropdown-menu>
+                    </el-dropdown>
+                </div>
+            </header>
+            <div class="admin-container">
+                <aside class="admin-aside">
+                    <el-menu :default-active="currentMenu" background-color="#1a1a2e" text-color="rgba(255,255,255,0.7)" active-text-color="#e54346" @select="handleMenuSelect">
+                        <el-menu-item index="dashboard">
+                            <i class="el-icon-data-analysis"></i>
+                            <span>首页</span>
+                        </el-menu-item>
+                        <el-submenu index="goods">
+                            <template slot="title">
+                                <i class="el-icon-goods"></i>
+                                <span>商品管理</span>
+                            </template>
+                            <el-menu-item index="goods-list">商品列表</el-menu-item>
+                            <el-menu-item index="goods-stock">库存管理</el-menu-item>
+                            <el-menu-item index="goods-category">商品分类</el-menu-item>
+                        </el-submenu>
+                        <el-submenu index="order">
+                            <template slot="title">
+                                <i class="el-icon-s-order"></i>
+                                <span>订单管理</span>
+                            </template>
+                            <el-menu-item index="order-list">订单列表</el-menu-item>
+                        </el-submenu>
+                        <el-submenu index="coupon">
+                            <template slot="title">
+                                <i class="el-icon-ticket"></i>
+                                <span>优惠券管理</span>
+                            </template>
+                            <el-menu-item index="coupon-list">优惠券列表</el-menu-item>
+                        </el-submenu>
+                        <el-submenu index="seckill">
+                            <template slot="title">
+                                <i class="el-icon-lightning"></i>
+                                <span>秒杀管理</span>
+                            </template>
+                            <el-menu-item index="seckill-item">秒杀商品</el-menu-item>
+                            <el-menu-item index="seckill-coupon">秒杀优惠券</el-menu-item>
+                        </el-submenu>
+                        <el-submenu index="comment">
+                            <template slot="title">
+                                <i class="el-icon-chat-dot-round"></i>
+                                <span>评价管理</span>
+                            </template>
+                            <el-menu-item index="comment-list">评价列表</el-menu-item>
+                        </el-submenu>
+                        <el-submenu index="fans">
+                            <template slot="title">
+                                <i class="el-icon-star-on"></i>
+                                <span>粉丝管理</span>
+                            </template>
+                            <el-menu-item index="fans-list">粉丝列表</el-menu-item>
+                            <el-menu-item index="fans-feed">推送管理</el-menu-item>
+                        </el-submenu>
+                        <el-submenu index="setting">
+                            <template slot="title">
+                                <i class="el-icon-setting"></i>
+                                <span>系统设置</span>
+                            </template>
+                            <el-menu-item index="shop-profile">商家信息</el-menu-item>
+                            <el-menu-item index="change-password">修改密码</el-menu-item>
+                        </el-submenu>
+                    </el-menu>
+                </aside>
+                <main class="admin-main">
+                    <div v-if="currentMenu==='dashboard'">
+                        <dashboard-page ref="dashboard"></dashboard-page>
+                    </div>
+                    <div v-if="currentMenu==='goods-list'">
+                        <goods-list-page ref="goodsList"></goods-list-page>
+                    </div>
+                    <div v-if="currentMenu==='goods-stock'">
+                        <goods-stock-page ref="goodsStock"></goods-stock-page>
+                    </div>
+                    <div v-if="currentMenu==='goods-category'">
+                        <goods-category-page ref="goodsCategory"></goods-category-page>
+                    </div>
+                    <div v-if="currentMenu==='order-list'">
+                        <order-list-page ref="orderList"></order-list-page>
+                    </div>
+                    <div v-if="currentMenu==='coupon-list'">
+                        <coupon-list-page ref="couponList"></coupon-list-page>
+                    </div>
+                    <div v-if="currentMenu==='seckill-item'">
+                        <seckill-item-page ref="seckillItem"></seckill-item-page>
+                    </div>
+                    <div v-if="currentMenu==='seckill-coupon'">
+                        <seckill-coupon-page ref="seckillCoupon"></seckill-coupon-page>
+                    </div>
+                    <div v-if="currentMenu==='comment-list'">
+                        <comment-list-page ref="commentList"></comment-list-page>
+                    </div>
+                    <div v-if="currentMenu==='fans-list'">
+                        <fans-list-page ref="fansList"></fans-list-page>
+                    </div>
+                    <div v-if="currentMenu==='fans-feed'">
+                        <feed-manage-page ref="feedManage"></feed-manage-page>
+                    </div>
+                    <div v-if="currentMenu==='shop-profile'">
+                        <shop-profile-page ref="shopProfile"></shop-profile-page>
+                    </div>
+                    <div v-if="currentMenu==='change-password'">
+                        <change-password-page ref="changePassword"></change-password-page>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@2/dist/vue.js"></script>
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/pages/dashboard.js"></script>
+    <script src="js/pages/goods/list.js"></script>
+    <script src="js/pages/goods/stock.js"></script>
+    <script src="js/pages/goods/category.js"></script>
+    <script src="js/pages/order/list.js"></script>
+    <script src="js/pages/coupon/list.js"></script>
+    <script src="js/pages/seckill/item.js"></script>
+    <script src="js/pages/seckill/coupon.js"></script>
+    <script src="js/pages/comment/list.js"></script>
+    <script src="js/pages/fans/list.js"></script>
+    <script src="js/pages/fans/feed.js"></script>
+    <script src="js/pages/setting/profile.js"></script>
+    <script src="js/pages/setting/password.js"></script>
+
+    <script>
+        if (!ZM.checkAuth()) { /* redirect in checkAuth */ }
+        else {
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    currentMenu: 'dashboard',
+                    user: ZM.getUser()
+                };
+            },
+            methods: {
+                handleMenuSelect(index) {
+                    this.currentMenu = index;
+                },
+                handleCommand(cmd) {
+                    if (cmd === 'logout') {
+                        ZM.logout();
+                    } else if (cmd === 'profile') {
+                        this.currentMenu = 'shop-profile';
+                    } else if (cmd === 'password') {
+                        this.currentMenu = 'change-password';
+                    }
+                }
+            }
+        });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>秒杀专区 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <style>
+    .seckill-page { max-width: 1210px; margin: 0 auto; padding: 20px; }
+    .seckill-page h2 { font-size: 22px; color: #e54346; margin-bottom: 20px; }
+    .seckill-page h2::before { content: '⚡'; margin-right: 8px; }
+
+    /* 每个时间段板块 */
+    .seckill-group { margin-bottom: 36px; border: 1px solid #f0d0d0; border-radius: 10px; overflow: hidden; }
+    .seckill-group-header { background: linear-gradient(135deg, #e54346, #ff6b6b); color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .seckill-group-header .left-info { display: flex; align-items: center; gap: 16px; }
+    .seckill-group-header .end-time { font-size: 14px; opacity: 0.9; }
+    .seckill-group-header .countdown-wrap { display: flex; align-items: center; gap: 8px; }
+    .seckill-group-header .label { font-size: 15px; font-weight: bold; }
+    .seckill-group-header .time-block { display: flex; gap: 4px; }
+    .seckill-group-header .time-item { background: rgba(0,0,0,0.3); padding: 3px 8px; border-radius: 4px; font-size: 20px; font-weight: bold; min-width: 36px; text-align: center; }
+    .seckill-group-header .time-sep { font-size: 20px; font-weight: bold; line-height: 30px; }
+    .seckill-group-header .status-tag { padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: bold; }
+    .seckill-group-header .status-tag.rushing { background: rgba(255,255,255,0.25); }
+    .seckill-group-header .status-tag.waiting { background: rgba(255,193,7,0.8); color: #333; }
+    .seckill-group-header .status-tag.ended { background: rgba(0,0,0,0.3); }
+    .seckill-group-body { padding: 20px; background: #fff; }
+
+    .section-title { font-size: 16px; color: #333; margin: 0 0 14px; padding-left: 10px; border-left: 3px solid #e54346; }
+    .section-title.coupon-title { border-left-color: #ff9800; }
+
+    /* 秒杀商品卡片 */
+    .seckill-grid { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+    .seckill-item { width: 280px; background: #fafafa; border: 1px solid #eee; border-radius: 8px; overflow: hidden; transition: box-shadow 0.2s; }
+    .seckill-item:hover { box-shadow: 0 4px 12px rgba(229,67,70,0.15); }
+    .seckill-item .img-box { height: 200px; overflow: hidden; background: #f8f8f8; display: flex; align-items: center; justify-content: center; }
+    .seckill-item .img-box img { max-width: 100%; max-height: 100%; }
+    .seckill-item .info { padding: 12px; }
+    .seckill-item .name { font-size: 14px; color: #333; height: 40px; overflow: hidden; line-height: 1.4; margin-bottom: 8px; }
+    .seckill-item .price-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+    .seckill-item .seckill-price { color: #e54346; font-size: 22px; font-weight: bold; }
+    .seckill-item .seckill-price .yen { font-size: 14px; }
+    .seckill-item .orig-price { color: #999; font-size: 13px; text-decoration: line-through; }
+    .seckill-item .stock-bar { height: 6px; background: #f0f0f0; border-radius: 3px; margin-bottom: 8px; overflow: hidden; }
+    .seckill-item .stock-bar .fill { height: 100%; background: linear-gradient(90deg, #e54346, #ff6b6b); border-radius: 3px; }
+    .seckill-item .stock-text { font-size: 12px; color: #999; margin-bottom: 10px; }
+    .seckill-item .btn-seckill { width: 100%; padding: 10px; background: linear-gradient(135deg, #e54346, #ff6b6b); color: #fff; border: none; border-radius: 4px; font-size: 15px; cursor: pointer; font-weight: bold; }
+    .seckill-item .btn-seckill:hover { opacity: 0.9; }
+    .seckill-item .btn-seckill:disabled { background: #ccc; cursor: not-allowed; }
+    .seckill-item .btn-seckill.waiting { background: linear-gradient(135deg, #ff9800, #ffc107); }
+    .seckill-coupon .btn-seckill-coupon.waiting { background: linear-gradient(135deg, #ff9800, #ffc107); }
+
+    /* 秒杀优惠券卡片 */
+    .seckill-coupon { width: 360px; display: flex; border: 1px solid #ff9800; border-radius: 8px; overflow: hidden; transition: box-shadow 0.2s; }
+    .seckill-coupon:hover { box-shadow: 0 4px 12px rgba(255,152,0,0.2); }
+    .seckill-coupon .left { width: 100px; background: linear-gradient(135deg, #ff9800, #ff5722); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; }
+    .seckill-coupon .left .amount { font-size: 26px; font-weight: bold; }
+    .seckill-coupon .left .unit { font-size: 12px; }
+    .seckill-coupon .right { flex: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; }
+    .seckill-coupon .right .name { font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px; }
+    .seckill-coupon .right .price { font-size: 13px; color: #ff9800; font-weight: bold; margin-bottom: 4px; }
+    .seckill-coupon .right .price.free { color: #4caf50; }
+    .seckill-coupon .right .stock-text { font-size: 12px; color: #999; margin-bottom: 8px; }
+    .seckill-coupon .right .btn-seckill-coupon { padding: 6px 16px; background: linear-gradient(135deg, #ff9800, #ff5722); color: #fff; border: none; border-radius: 3px; font-size: 13px; cursor: pointer; align-self: flex-end; }
+    .seckill-coupon .right .btn-seckill-coupon:hover { opacity: 0.9; }
+    .seckill-coupon .right .btn-seckill-coupon:disabled { background: #ccc; cursor: not-allowed; }
+
+    .no-data { text-align: center; color: #999; padding: 40px; font-size: 16px; }
+
+    /* 结果弹窗 */
+    .result-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .result-box { background: #fff; border-radius: 10px; width: 360px; padding: 28px; text-align: center; }
+    .result-box h3 { font-size: 20px; margin-bottom: 16px; }
+    .result-box h3.success { color: #4caf50; }
+    .result-box h3.fail { color: #e54346; }
+    .result-box h3.pending { color: #ff9800; }
+    .result-box p { color: #666; font-size: 14px; margin-bottom: 16px; }
+    .result-box button { padding: 10px 30px; background: #e54346; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="seckill-page">
+    <h2>限时秒杀</h2>
+
+    <div v-if="groups.length === 0" class="no-data">暂无秒杀活动</div>
+
+    <div class="seckill-group" v-for="group in groups" :key="group.groupKey">
+      <div class="seckill-group-header">
+        <div class="left-info">
+          <span class="end-time">{{group.status === 'waiting' ? formatBeginTime(group.groupTime) : formatEndTime(group.groupTime)}}</span>
+          <div class="countdown-wrap">
+            <span class="label">{{group.status === 'waiting' ? '距离开抢：' : '距离结束：'}}</span>
+            <div class="time-block">
+              <span class="time-item">{{group.countdown.h}}</span>
+              <span class="time-sep">:</span>
+              <span class="time-item">{{group.countdown.m}}</span>
+              <span class="time-sep">:</span>
+              <span class="time-item">{{group.countdown.s}}</span>
+            </div>
+          </div>
+        </div>
+        <span class="status-tag" :class="group.status">{{group.statusText}}</span>
+      </div>
+      <div class="seckill-group-body">
+        <!-- 秒杀商品 -->
+        <div v-if="group.items.length > 0">
+          <div class="section-title">秒杀商品</div>
+          <div class="seckill-grid">
+            <div class="seckill-item" v-for="item in group.items" :key="item.itemId">
+              <a :href="'/item-detail.html?id=' + item.itemId" style="text-decoration:none;color:inherit;">
+                <div class="img-box">
+                  <img :src="item.image || './img/goods.png'" :alt="item.itemName"/>
+                </div>
+              </a>
+              <div class="info">
+                <a :href="'/item-detail.html?id=' + item.itemId" style="text-decoration:none;color:inherit;">
+                  <div class="name">{{item.itemName}}</div>
+                </a>
+                <div class="price-row">
+                  <span class="seckill-price"><span class="yen">￥</span>{{formatPrice(item.seckillPrice)}}</span>
+                  <span class="orig-price" v-if="item.price">￥{{formatPrice(item.price)}}</span>
+                </div>
+                <div class="stock-bar"><div class="fill" :style="{width: stockPercent(item) + '%'}"></div></div>
+                <div class="stock-text">剩余 {{item.redisStock || item.seckillStock || 0}} 件 / 限购 {{item.maxPerUser}} 件</div>
+                <button class="btn-seckill" :class="{waiting: !isRushing(item)}" :disabled="seckilling[item.itemId] || group.status==='ended'"
+                        @click="doSeckillItem(item)">
+                  {{seckilling[item.itemId] ? '抢购中...' : (group.status==='ended' ? '已结束' : (isRushing(item) ? '立即抢购' : '即将开抢'))}}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 秒杀优惠券 -->
+        <div v-if="group.coupons.length > 0">
+          <div class="section-title coupon-title">秒杀优惠券</div>
+          <div class="seckill-grid">
+            <div class="seckill-coupon" v-for="c in group.coupons" :key="c.couponId">
+              <div class="left">
+                <div class="amount" v-if="c.type===1">{{c.discountValue}}</div>
+                <div class="amount" v-if="c.type===2">{{c.discountValue}}折</div>
+                <div class="unit">{{c.type===1?'满减券':'折扣券'}}</div>
+              </div>
+              <div class="right">
+                <div class="name">{{c.couponName}}</div>
+                <div class="price" :class="{free: !c.purchasePrice || c.purchasePrice===0}">
+                  {{c.purchasePrice && c.purchasePrice > 0 ? '￥' + formatPrice(c.purchasePrice) : '免费抢'}}
+                </div>
+                <div class="stock-text">剩余 {{c.redisStock || c.seckillStock || 0}} 张 / 限领 {{c.maxPerUser}} 张</div>
+                <button class="btn-seckill-coupon" :class="{waiting: !isRushing(c)}" :disabled="seckillingCoupon[c.couponId] || group.status==='ended' || !isRushing(c)"
+                        @click="doSeckillCoupon(c)">
+                  {{seckillingCoupon[c.couponId] ? '抢购中...' : (group.status==='ended' ? '已结束' : (isRushing(c) ? '立即抢券' : '即将开抢'))}}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="group.items.length === 0 && group.coupons.length === 0" class="no-data" style="padding:20px;">该时段暂无商品</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结果弹窗 -->
+  <div class="result-mask" v-if="showResult" @click.self="showResult=false">
+    <div class="result-box">
+      <h3 :class="resultClass">{{resultTitle}}</h3>
+      <p>{{resultMsg}}</p>
+      <button @click="showResult=false">确定</button>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    seckillItems: [],
+    seckillCoupons: [],
+    seckilling: {},
+    seckillingCoupon: {},
+    countdownTimer: null,
+    showResult: false,
+    resultTitle: '',
+    resultMsg: '',
+    resultClass: ''
+  },
+  computed: {
+    // 未开抢按开抢时间分组，已开抢按结束时间分组
+    groups() {
+      const now = Date.now();
+      const map = {};
+      const getGroupKey = (item) => {
+        if (!item.rushBeginTime || !item.rushEndTime) return { key: 'unknown', time: 'unknown', phase: 'rushing' };
+        const begin = new Date(item.rushBeginTime).getTime();
+        const end = new Date(item.rushEndTime).getTime();
+        if (now < begin) {
+          // 未开抢，按开抢时间分组
+          return { key: 'begin_' + item.rushBeginTime, time: item.rushBeginTime, phase: 'waiting' };
+        } else if (now <= end) {
+          // 已开抢，按结束时间分组
+          return { key: 'end_' + item.rushEndTime, time: item.rushEndTime, phase: 'rushing' };
+        } else {
+          // 已结束
+          return { key: 'end_' + item.rushEndTime, time: item.rushEndTime, phase: 'ended' };
+        }
+      };
+      const ensureGroup = (key, time, phase) => {
+        if (!map[key]) {
+          map[key] = {
+            groupKey: key,
+            groupTime: time,
+            phase: phase,
+            items: [],
+            coupons: [],
+            countdown: { h: '--', m: '--', s: '--' },
+            status: phase,
+            statusText: phase === 'waiting' ? '即将开抢' : (phase === 'rushing' ? '抢购中' : '已结束')
+          };
+        }
+      };
+      this.seckillItems.forEach(item => {
+        const g = getGroupKey(item);
+        ensureGroup(g.key, g.time, g.phase);
+        map[g.key].items.push(item);
+      });
+      this.seckillCoupons.forEach(c => {
+        const g = getGroupKey(c);
+        ensureGroup(g.key, g.time, g.phase);
+        map[g.key].coupons.push(c);
+      });
+      // 转数组，按分组时间排序（最近的排前面）
+      const groups = Object.values(map);
+      groups.sort((a, b) => {
+        if (a.groupTime === 'unknown') return 1;
+        if (b.groupTime === 'unknown') return -1;
+        return new Date(a.groupTime).getTime() - new Date(b.groupTime).getTime();
+      });
+      // 过滤掉已结束的
+      return groups.filter(g => g.phase !== 'ended');
+    }
+  },
+  created() {
+    this.loadSeckillItems();
+    this.loadSeckillCoupons();
+    this.startCountdown();
+  },
+  beforeDestroy() {
+    if (this.countdownTimer) clearInterval(this.countdownTimer);
+  },
+  methods: {
+    loadSeckillItems() {
+      axios.get('/seckill/items').then(res => {
+        this.seckillItems = res || [];
+      }).catch(err => {
+        if (err && err.response && err.response.status === 401) return;
+        this.seckillItems = [];
+      });
+    },
+    loadSeckillCoupons() {
+      axios.get('/seckill/coupons').then(res => {
+        this.seckillCoupons = res || [];
+      }).catch(err => {
+        if (err && err.response && err.response.status === 401) return;
+        this.seckillCoupons = [];
+      });
+    },
+    formatPrice(val) { return util.formatPrice(val); },
+    stockPercent(item) {
+      const total = item.seckillStock || 1;
+      const remain = item.redisStock || item.seckillStock || 0;
+      return Math.max(0, Math.min(100, ((total - remain) / total) * 100));
+    },
+    isRushing(item) {
+      if (!item.rushBeginTime || !item.rushEndTime) return true;
+      const now = new Date().getTime();
+      const begin = new Date(item.rushBeginTime).getTime();
+      const end = new Date(item.rushEndTime).getTime();
+      return now >= begin && now <= end;
+    },
+    formatEndTime(endTime) {
+      if (!endTime || endTime === 'unknown') return '时间待定';
+      const d = new Date(endTime);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      return mm + '-' + dd + ' ' + hh + ':' + mi + ' 结束';
+    },
+    formatBeginTime(beginTime) {
+      if (!beginTime || beginTime === 'unknown') return '时间待定';
+      const d = new Date(beginTime);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      return mm + '-' + dd + ' ' + hh + ':' + mi + ' 开抢';
+    },
+    startCountdown() {
+      const update = () => {
+        const now = Date.now();
+        this.groups.forEach(group => {
+          if (!group.groupTime || group.groupTime === 'unknown') {
+            group.countdown = { h: '--', m: '--', s: '--' };
+            return;
+          }
+          const groupTs = new Date(group.groupTime).getTime();
+
+          if (group.phase === 'waiting') {
+            // 未开抢：倒计时到开抢时间
+            const diff = Math.max(0, groupTs - now);
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            group.countdown = { h: String(h).padStart(2, '0'), m: String(m).padStart(2, '0'), s: String(s).padStart(2, '0') };
+            if (diff <= 0) {
+              group.status = 'rushing';
+              group.statusText = '抢购中';
+              group.phase = 'rushing';
+            } else {
+              group.status = 'waiting';
+              group.statusText = '即将开抢';
+            }
+          } else if (group.phase === 'rushing') {
+            // 已开抢：倒计时到结束时间
+            const diff = Math.max(0, groupTs - now);
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            group.countdown = { h: String(h).padStart(2, '0'), m: String(m).padStart(2, '0'), s: String(s).padStart(2, '0') };
+            if (diff <= 0) {
+              group.status = 'ended';
+              group.statusText = '已结束';
+              group.phase = 'ended';
+            } else {
+              group.status = 'rushing';
+              group.statusText = '抢购中';
+            }
+          } else {
+            // 已结束
+            group.countdown = { h: '00', m: '00', s: '00' };
+            group.status = 'ended';
+            group.statusText = '已结束';
+          }
+        });
+      };
+      update();
+      this.countdownTimer = setInterval(update, 1000);
+    },
+    doSeckillItem(item) {
+      if (!util.isLogin()) { location.href = '/login.html'; return; }
+      if (!this.isRushing(item)) { alert('活动尚未开始'); return; }
+      this.$set(this.seckilling, item.itemId, true);
+      axios.post('/seckill/' + item.itemId).then(res => {
+        this.handleSeckillResult(res, item.itemId, 'item');
+      }).catch(err => {
+        this.$set(this.seckilling, item.itemId, false);
+        alert((err.response && err.response.data && err.response.data.msg) || '抢购失败');
+      });
+    },
+    doSeckillCoupon(c) {
+      if (!util.isLogin()) { location.href = '/login.html'; return; }
+      if (!this.isRushing(c)) { alert('活动尚未开始'); return; }
+      this.$set(this.seckillingCoupon, c.couponId, true);
+      axios.post('/seckill/coupon/' + c.couponId).then(res => {
+        this.handleSeckillResult(res, c.couponId, 'coupon');
+      }).catch(err => {
+        this.$set(this.seckillingCoupon, c.couponId, false);
+        alert((err.response && err.response.data && err.response.data.msg) || '抢券失败');
+      });
+    },
+    handleSeckillResult(res, id, type) {
+      if (res && res.code === 0) {
+        this.resultTitle = '抢购成功！';
+        this.resultMsg = '订单号：' + (res.orderId || '');
+        this.resultClass = 'success';
+        this.showResult = true;
+        if (type === 'item') this.$set(this.seckilling, id, false);
+        else this.$set(this.seckillingCoupon, id, false);
+        if (type === 'item') this.loadSeckillItems();
+        else this.loadSeckillCoupons();
+      } else if (res && res.code === 1) {
+        this.resultTitle = '抢购失败';
+        this.resultMsg = type === 'coupon' ? '手慢了，优惠券已被抢完' : '手慢了，商品已被抢完';
+        this.resultClass = 'fail';
+        this.showResult = true;
+        if (type === 'item') this.$set(this.seckilling, id, false);
+        else this.$set(this.seckillingCoupon, id, false);
+      } else if (res && res.code === 2) {
+        this.resultTitle = '请勿重复抢购';
+        this.resultMsg = type === 'coupon' ? '您已经抢过该优惠券了' : '您已经抢购过了';
+        this.resultClass = 'fail';
+        this.showResult = true;
+        if (type === 'item') this.$set(this.seckilling, id, false);
+        else this.$set(this.seckillingCoupon, id, false);
+      } else if (res && res.code === 3) {
+        this.resultTitle = '活动尚未开始';
+        this.resultMsg = '还没到开抢时间，请耐心等待';
+        this.resultClass = 'pending';
+        this.showResult = true;
+        if (type === 'item') this.$set(this.seckilling, id, false);
+        else this.$set(this.seckillingCoupon, id, false);
+      } else if (res && res.code === 4) {
+        this.resultTitle = '活动已结束';
+        this.resultMsg = '该秒杀活动已结束';
+        this.resultClass = 'fail';
+        this.showResult = true;
+        if (type === 'item') this.$set(this.seckilling, id, false);
+        else this.$set(this.seckillingCoupon, id, false);
+      } else {
+        this.pollResult(id, type);
+      }
+    },
+    pollResult(id, type) {
+      const url = type === 'item' ? '/seckill/result/' + id : '/seckill/coupon/result/' + id;
+      const poll = () => {
+        axios.get(url).then(res => {
+          if (res && res.code === 0) {
+            this.resultTitle = '抢购成功！';
+            this.resultMsg = '订单号：' + (res.orderId || '');
+            this.resultClass = 'success';
+            this.showResult = true;
+            if (type === 'item') this.$set(this.seckilling, id, false);
+            else this.$set(this.seckillingCoupon, id, false);
+            if (type === 'item') this.loadSeckillItems();
+            else this.loadSeckillCoupons();
+          } else if (res && res.code === 1) {
+            this.resultTitle = '抢购失败';
+            this.resultMsg = '手慢了，商品已被抢完';
+            this.resultClass = 'fail';
+            this.showResult = true;
+            if (type === 'item') this.$set(this.seckilling, id, false);
+            else this.$set(this.seckillingCoupon, id, false);
+          } else if (res && res.code === 2) {
+            this.resultTitle = '请勿重复抢购';
+            this.resultMsg = '您已经抢购过了';
+            this.resultClass = 'fail';
+            this.showResult = true;
+            if (type === 'item') this.$set(this.seckilling, id, false);
+            else this.$set(this.seckillingCoupon, id, false);
+          } else {
+            setTimeout(poll, 1000);
+          }
+        }).catch(() => {
+          if (type === 'item') this.$set(this.seckilling, id, false);
+          else this.$set(this.seckillingCoupon, id, false);
+        });
+      };
+      setTimeout(poll, 1000);
+    }
+  }
+});
+</script>
+</body>
+</html>

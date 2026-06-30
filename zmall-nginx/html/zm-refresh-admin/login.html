@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Michael杂货铺后台 - 登录</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <div id="app">
+        <div class="login-wrapper">
+            <div class="login-card">
+                <div class="login-header">
+                    <h1>Michael杂货铺</h1>
+                    <p>后台管理系统</p>
+                </div>
+                <div class="login-body">
+                    <el-form :model="loginForm" :rules="loginRules" ref="loginForm" @submit.native.prevent="handleLogin">
+                        <el-form-item prop="username">
+                            <el-input v-model="loginForm.username" prefix-icon="el-icon-user" placeholder="请输入用户名"></el-input>
+                        </el-form-item>
+                        <el-form-item prop="password">
+                            <el-input v-model="loginForm.password" prefix-icon="el-icon-lock" placeholder="请输入密码" type="password" show-password></el-input>
+                        </el-form-item>
+                        <el-form-item>
+                            <el-button type="primary" :loading="loading" native-type="submit">登 录</el-button>
+                        </el-form-item>
+                    </el-form>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://unpkg.com/vue@2/dist/vue.js"></script>
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="js/common.js"></script>
+    <script>
+        // 如果已登录（localStorage和cookie都有有效token），直接跳转后台首页
+        // 只检查localStorage会导致循环：localStorage有token但cookie过期 → 跳index.html → auth_request失败 → 回login.html
+        (function() {
+            var token = localStorage.getItem('zm-admin-token');
+            var cookieToken = ZM.getCookie('zm_admin_token');
+            if (token && cookieToken) {
+                // 两边都有token，大概率仍有效，跳转主页
+                window.location.href = '/index.html';
+            } else if (token && !cookieToken) {
+                // localStorage有但cookie过期/缺失，清除无效登录信息
+                ZM.clearLogin();
+            }
+        })();
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    loginForm: {
+                        username: '',
+                        password: ''
+                    },
+                    loginRules: {
+                        username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+                        password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+                    },
+                    loading: false
+                }
+            },
+            methods: {
+                handleLogin() {
+                    this.$refs.loginForm.validate(valid => {
+                        if (!valid) return;
+                        this.loading = true;
+                        axios.post('/api/users/login', {
+                            username: this.loginForm.username,
+                            password: this.loginForm.password
+                        }).then(res => {
+                            this.loading = false;
+                            const data = res.data;
+                            if (data && data.token) {
+                                // 校验是否为商家管理员（role=2）
+                                if (data.role !== 2) {
+                                    this.$message.error('该账号不是商家管理员，无法登录后台');
+                                    return;
+                                }
+                                // 同时存localStorage和cookie（cookie供Nginx auth_request验证）
+                                ZM.saveLogin(data.token, {
+                                    userId: data.userId,
+                                    username: data.username,
+                                    role: data.role
+                                });
+                                this.$message.success('登录成功');
+                                window.location.href = '/index.html';
+                            } else {
+                                this.$message.error(data?.msg || '登录失败');
+                            }
+                        }).catch(err => {
+                            this.loading = false;
+                            const msg = err.response?.data?.msg || err.response?.data?.message || '登录失败，请检查用户名和密码';
+                            this.$message.error(msg);
+                        });
+                    });
+                }
+            }
+        });
+    </script>
+</body>
+</html>

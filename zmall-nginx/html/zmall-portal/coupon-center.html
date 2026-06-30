@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>优惠券中心 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <style>
+    .coupon-center { max-width: 1210px; margin: 0 auto; padding: 20px; }
+    .coupon-center h2 { font-size: 22px; margin-bottom: 20px; color: #333; }
+    .tab-bar { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e54346; }
+    .tab-bar a { display: inline-block; padding: 10px 24px; font-size: 15px; color: #666; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab-bar a.active { color: #e54346; border-bottom-color: #e54346; font-weight: bold; }
+    .tab-bar a:hover { color: #e54346; }
+    .coupon-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+    .coupon-card { display: flex; width: 380px; border: 1px solid #f0c0b0; border-radius: 8px; overflow: hidden; transition: box-shadow 0.2s; background: #fff; }
+    .coupon-card:hover { box-shadow: 0 4px 12px rgba(229,67,70,0.15); }
+    .coupon-card.seckill { border-color: #ff9800; }
+    .coupon-card.seckill .coupon-left { background: linear-gradient(135deg, #ff9800, #ff5722); }
+    .coupon-left { width: 110px; background: linear-gradient(135deg, #e54346, #c62828); color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 12px; }
+    .coupon-left .amount { font-size: 30px; font-weight: bold; line-height: 1.2; }
+    .coupon-left .unit { font-size: 12px; margin-top: 2px; }
+    .coupon-left .tag { font-size: 11px; background: rgba(255,255,255,0.3); padding: 2px 8px; border-radius: 10px; margin-top: 6px; }
+    .coupon-right { flex: 1; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; }
+    .coupon-right .name { font-size: 14px; color: #333; font-weight: bold; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .coupon-right .condition { font-size: 12px; color: #999; margin-bottom: 4px; }
+    .coupon-right .time { font-size: 11px; color: #bbb; }
+    .coupon-right .bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+    .coupon-right .price-tag { font-size: 13px; color: #e54346; font-weight: bold; }
+    .coupon-right .price-tag.free { color: #4caf50; }
+    .coupon-right .action-btn { padding: 5px 16px; border: 1px solid #e54346; color: #e54346; background: #fff; border-radius: 3px; font-size: 13px; cursor: pointer; }
+    .coupon-right .action-btn:hover { background: #e54346; color: #fff; }
+    .coupon-right .action-btn.received { border-color: #ccc; color: #ccc; cursor: default; }
+    .coupon-right .action-btn.purchase { border-color: #ff9800; color: #ff9800; }
+    .coupon-right .action-btn.purchase:hover { background: #ff9800; color: #fff; }
+    .coupon-right .action-btn.seckill-btn { border-color: #ff5722; color: #ff5722; }
+    .coupon-right .action-btn.seckill-btn:hover { background: #ff5722; color: #fff; }
+    .pagination { text-align: center; margin-top: 24px; }
+    .pagination a { display: inline-block; padding: 6px 14px; margin: 0 4px; border: 1px solid #ddd; border-radius: 3px; color: #333; text-decoration: none; font-size: 13px; }
+    .pagination a.active { background: #e54346; color: #fff; border-color: #e54346; }
+    .pagination a:hover { border-color: #e54346; color: #e54346; }
+    .pagination a.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+    .pagination span { font-size: 13px; color: #666; margin: 0 4px; }
+    .pagination input { width: 40px; text-align: center; border: 1px solid #ddd; border-radius: 3px; padding: 4px; }
+    .no-data { text-align: center; color: #999; padding: 60px; font-size: 16px; }
+    /* 弹窗 */
+    .modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .modal-box { background: #fff; border-radius: 10px; width: 420px; padding: 28px; }
+    .modal-box h3 { text-align: center; color: #e54346; font-size: 20px; margin-bottom: 18px; }
+    .modal-info p { margin: 10px 0; font-size: 14px; color: #555; }
+    .modal-info p strong { color: #333; display: inline-block; width: 80px; }
+    .modal-actions { display: flex; gap: 12px; justify-content: center; margin-top: 20px; }
+    .modal-actions button { padding: 10px 30px; border-radius: 4px; font-size: 14px; cursor: pointer; border: none; }
+    .modal-actions .btn-confirm { background: #e54346; color: #fff; }
+    .modal-actions .btn-confirm:hover { background: #c73032; }
+    .modal-actions .btn-cancel { background: #f0f0f0; color: #333; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="coupon-center">
+    <h2>优惠券中心</h2>
+    <div class="tab-bar">
+      <a href="javascript:void(0)" :class="{active: tab==='all'}" @click="switchTab('all')">全部优惠券</a>
+      <a href="javascript:void(0)" :class="{active: tab==='normal'}" @click="switchTab('normal')">普通券</a>
+      <a href="javascript:void(0)" :class="{active: tab==='seckill'}" @click="switchTab('seckill')">秒杀券</a>
+    </div>
+    <div v-if="coupons.length === 0 && !loading" class="no-data">暂无可用优惠券</div>
+    <div class="coupon-grid">
+      <div class="coupon-card" :class="{seckill: c.couponType===2}" v-for="c in coupons" :key="c.id" @click="openModal(c)">
+        <div class="coupon-left">
+          <div class="amount" v-if="c.type===1">¥{{formatPrice(c.discountValue)}}</div>
+          <div class="amount" v-if="c.type===2">{{(c.discountValue/10).toFixed(1)}}折</div>
+          <div class="unit">{{c.typeText}}</div>
+          <div class="tag" v-if="c.couponType===2">秒杀</div>
+        </div>
+        <div class="coupon-right">
+          <div class="name">{{c.name}}</div>
+          <div class="condition">{{c.thresholdAmount > 0 ? '满' + formatPrice(c.thresholdAmount) + '可用' : '无门槛'}}</div>
+          <div class="time" v-if="c.beginTime && c.endTime">{{c.beginTime.substring(0,10)}} ~ {{c.endTime.substring(0,10)}}</div>
+          <div class="time" v-else-if="c.validDaysText">{{c.validDaysText}}</div>
+          <div class="time" v-else>领取后{{c.validDays}}天内有效</div>
+          <div class="bottom">
+            <span class="price-tag" :class="{free: !c.purchasePrice || c.purchasePrice===0}">
+              {{c.purchasePrice && c.purchasePrice > 0 ? '￥' + formatPrice(c.purchasePrice) : '免费'}}
+            </span>
+            <button v-if="c.couponType===2" class="action-btn seckill-btn" @click.stop="goSeckill">秒杀抢券</button>
+            <button v-else-if="c.purchasePrice > 0" class="action-btn purchase" @click.stop="openModal(c)">购买</button>
+            <button v-else-if="c._receivedCount >= c.perUserLimit" class="action-btn received">已领取</button>
+            <button v-else class="action-btn" @click.stop="receiveCoupon(c)">{{c._receivedCount > 0 ? '继续领取(' + c._receivedCount + '/' + c.perUserLimit + ')' : '领取'}}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="pagination" v-if="total > size">
+      <span>共 {{total}} 条 / 共 {{pages}} 页</span>
+      <a :class="{disabled: page<=1}" href="javascript:void(0)" @click="page>1 && loadCoupons(page-1)">上一页</a>
+      <a v-for="p in pageNumberList" :key="p" :class="{active: p === page}" href="javascript:void(0)" @click="loadCoupons(p)">{{p}}</a>
+      <a :class="{disabled: page>=pages}" href="javascript:void(0)" @click="page<pages && loadCoupons(page+1)">下一页</a>
+      <span>跳至</span>
+      <input type="number" v-model.number="jumpPage" min="1" :max="pages" @keyup.enter="goToPage">
+      <span>页</span>
+      <a href="javascript:void(0)" @click="goToPage">确定</a>
+    </div>
+  </div>
+
+  <!-- 优惠券详情弹窗 -->
+  <div class="modal-mask" v-if="showModal" @click.self="showModal=false">
+    <div class="modal-box">
+      <h3>{{currentCoupon.name}}</h3>
+      <div class="modal-info">
+        <p><strong>优惠方式：</strong>{{currentCoupon.typeText}}</p>
+        <p v-if="currentCoupon.type===1"><strong>优惠金额：</strong>￥{{formatPrice(currentCoupon.discountValue)}}</p>
+        <p v-if="currentCoupon.type===2"><strong>折扣力度：</strong>{{(currentCoupon.discountValue/10).toFixed(1)}}折</p>
+        <p><strong>使用门槛：</strong>{{currentCoupon.thresholdAmount > 0 ? '满￥' + formatPrice(currentCoupon.thresholdAmount) : '无门槛'}}</p>
+        <p><strong>适用范围：</strong>{{currentCoupon.scopeTypeText}}</p>
+        <p><strong>有效期：</strong>{{currentCoupon.validDaysText || '领取后' + currentCoupon.validDays + '天'}}</p>
+        <p v-if="currentCoupon.purchasePrice > 0"><strong>购买价格：</strong>￥{{formatPrice(currentCoupon.purchasePrice)}}</p>
+        <p><strong>每人限领：</strong>{{currentCoupon.perUserLimit}}张</p>
+        <p><strong>剩余数量：</strong>{{currentCoupon.totalCount - currentCoupon.receivedCount}}张</p>
+      </div>
+      <div class="modal-actions">
+        <button v-if="currentCoupon.couponType===2" class="btn-confirm" @click="goSeckill">去秒杀</button>
+        <button v-else-if="currentCoupon.purchasePrice > 0" class="btn-confirm" @click="purchaseCoupon(currentCoupon)">确认购买</button>
+        <button v-else-if="currentCoupon._receivedCount >= currentCoupon.perUserLimit" class="btn-cancel" disabled style="color:#ccc;cursor:default;">已领取</button>
+        <button v-else class="btn-confirm" @click="receiveCoupon(currentCoupon)">{{currentCoupon._receivedCount > 0 ? '继续领取(' + currentCoupon._receivedCount + '/' + currentCoupon.perUserLimit + ')' : '确认领取'}}</button>
+        <button class="btn-cancel" @click="showModal=false">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    tab: 'all',
+    coupons: [],
+    page: 1,
+    size: 12,
+    total: 0,
+    _serverPages: 0,
+    jumpPage: 1,
+    loading: false,
+    showModal: false,
+    currentCoupon: {}
+  },
+  computed: {
+    pages() {
+      return this._serverPages || Math.ceil(this.total / this.size);
+    },
+    pageNumberList() {
+      const list = [];
+      const start = Math.max(1, this.page - 2);
+      const end = Math.min(this.pages, this.page + 2);
+      for (let i = start; i <= end; i++) list.push(i);
+      return list;
+    }
+  },
+  created() {
+    this.loadCoupons(1);
+  },
+  methods: {
+    switchTab(t) {
+      this.tab = t;
+      this.loadCoupons(1);
+    },
+    goToPage() {
+      const p = parseInt(this.jumpPage);
+      if (p >= 1 && p <= this.pages) {
+        this.loadCoupons(p);
+      }
+    },
+    loadCoupons(page) {
+      this.page = page;
+      this.loading = true;
+      let params = { page: this.page, size: this.size };
+      if (this.tab === 'normal') params.couponType = 1;
+      if (this.tab === 'seckill') params.couponType = 2;
+      axios.get('/coupons/available', { params }).then(res => {
+        this.coupons = (res && res.list ? res.list : []).map(c => { c._receivedCount = 0; return c; });
+        this.total = res && res.total ? res.total : 0;
+        this._serverPages = res && res.pages ? res.pages : 0;
+        this.loading = false;
+        // 查询用户已领取的优惠券数量
+        if (util.isLogin()) {
+          this.loadReceivedCount();
+        }
+      }).catch(() => { this.loading = false; });
+    },
+    loadReceivedCount() {
+      axios.get('/coupons/user/received-count').then(res => {
+        const countMap = res || {};
+        this.coupons.forEach(c => {
+          const key = String(c.id);
+          c._receivedCount = countMap[key] || 0;
+        });
+      }).catch(() => {});
+    },
+    formatPrice(val) { return util.formatPrice(val); },
+    openModal(c) {
+      this.currentCoupon = c;
+      this.showModal = true;
+    },
+    receiveCoupon(c) {
+      if (!util.isLogin()) { location.href = '/login.html'; return; }
+      axios.post('/coupons/' + c.id + '/receive').then(() => {
+        c._receivedCount = (c._receivedCount || 0) + 1;
+        alert('领取成功！');
+        this.showModal = false;
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '领取失败');
+      });
+    },
+    purchaseCoupon(c) {
+      if (!util.isLogin()) { location.href = '/login.html'; return; }
+      if (!confirm('确认花费￥' + this.formatPrice(c.purchasePrice) + '购买此优惠券？')) return;
+      axios.post('/coupons/' + c.id + '/purchase').then(orderId => {
+        alert('购买成功！订单号：' + orderId);
+        this.showModal = false;
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '购买失败');
+      });
+    },
+    goSeckill() {
+      location.href = '/seckill-index.html';
+    }
+  }
+});
+</script>
+</body>
+</html>

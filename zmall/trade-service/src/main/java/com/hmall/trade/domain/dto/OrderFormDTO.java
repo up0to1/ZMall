@@ -1,0 +1,21 @@
+package com.hmall.trade.domain.dto;
+
+import com.hmall.api.dto.OrderDetailDTO;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+@ApiModel(description = "交易下单表单实体")
+public class OrderFormDTO {
+    @ApiModelProperty("收货地址id")
+    private Long addressId;
+    @ApiModelProperty("支付类型")
+    private Integer paymentType;
+    @ApiModelProperty("下单商品列表")
+    private List<OrderDetailDTO> details;
+    @ApiModelProperty("使用的优惠券ID，不使用优惠券时不传")
+    private Long couponId;
+}

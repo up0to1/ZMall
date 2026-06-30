@@ -1,6 +1,6 @@
 视频跳转：[《黑马商场-微服务开发与实战》](bilibili.com/video/BV1S142197x7?p=1)
 资料学习：[《微服务框架》](https://b11et3un53m.feishu.cn/wiki/PsyawI04ei2FQykqfcPcmd7Dnsc)
-参考项目：[黑马商城](https://github.com/fangshuiyun/hmall)
+参考项目：[黑马商城hmall](https://github.com/fangshuiyun/hmall)
 
 # 技术栈
 

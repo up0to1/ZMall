@@ -46,3 +46,6 @@ nacos/
 
 # ===== Sentinel =====
 sentinel-dashboard.jar
+
+# ===== All resources directories =====
+**/resources/

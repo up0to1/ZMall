@@ -62,7 +62,18 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart> implements IC
         Cart cart = BeanUtils.copyBean(cartFormDTO, Cart.class);
         // 3.2.保存当前用户
         cart.setUserId(userId);
-        // 3.3.保存到数据库
+        // 3.3.查询商品信息，补充name、price、image、spec等快照字段
+        //    （前端仅传itemId，cart表的name字段为NOT NULL，需后端填充）
+        ItemDTO item = itemClient.queryItemById(cartFormDTO.getItemId());
+        if (item == null) {
+            throw new BizIllegalException("商品不存在");
+        }
+        cart.setName(item.getName());
+        cart.setPrice(item.getPrice());
+        cart.setImage(item.getImage());
+        cart.setSpec(item.getSpec());
+        cart.setNum(1);
+        // 3.4.保存到数据库
         save(cart);
     }
 

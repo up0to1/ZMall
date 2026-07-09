@@ -1,6 +1,7 @@
 package com.hmall.trade.schedule;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.hmall.common.config.RedisConstants;
 import com.hmall.trade.domain.po.Coupon;
 import com.hmall.trade.domain.po.Order;
 import com.hmall.trade.domain.po.SeckillCoupon;
@@ -13,6 +14,7 @@ import com.hmall.trade.service.IOrderService;
 import com.hmall.trade.service.ISeckillService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +37,7 @@ public class ScheduledTasks {
     private final SeckillItemMapper seckillItemMapper;
     private final SeckillCouponMapper seckillCouponMapper;
     private final ISeckillService seckillService;
+    private final StringRedisTemplate stringRedisTemplate;
 
     /**
      * 1. 普通商品订单超时未支付自动取消 - 兜底
@@ -201,6 +204,80 @@ public class ScheduledTasks {
             } catch (Exception e) {
                 log.error("定时兜底：秒杀优惠券{}下架失败", sc.getCouponId(), e);
             }
+        }
+    }
+
+    /**
+     * 7. 秒杀商品自动预热 - 开抢前5分钟自动写入Redis
+     * 扫描即将开抢(5分钟内)或已开抢但未过期的秒杀商品
+     * 若Redis中尚未预热则自动预热，TTL到秒杀结束时间
+     * 兜底：防止秒杀开始前没来得及自动把预热写入redis，已开抢的也补预热
+     */
+    @Scheduled(fixedDelay = 60 * 1000)
+    public void autoPreheatSeckillItems() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime preheatWindow = now.plusMinutes(5);
+        List<SeckillItem> items = seckillItemMapper.selectList(
+                new LambdaQueryWrapper<SeckillItem>()
+                        .le(SeckillItem::getRushBeginTime, preheatWindow)
+                        .gt(SeckillItem::getRushEndTime, now)
+                        .last("LIMIT 100")
+        );
+        if (items.isEmpty()) {
+            return;
+        }
+        int count = 0;
+        for (SeckillItem item : items) {
+            try {
+                String stockKey = RedisConstants.SECKILL_STOCK_KEY + item.getItemId();
+                Boolean exists = stringRedisTemplate.hasKey(stockKey);
+                if (Boolean.FALSE.equals(exists)) {
+                    seckillService.preheatStockToRedis(item.getItemId());
+                    count++;
+                    log.info("定时自动预热：秒杀商品{}已预热", item.getItemId());
+                }
+            } catch (Exception e) {
+                log.error("定时自动预热：秒杀商品{}预热失败", item.getItemId(), e);
+            }
+        }
+        if (count > 0) {
+            log.info("定时自动预热：本次共预热{}个秒杀商品", count);
+        }
+    }
+
+    /**
+     * 8. 秒杀优惠券自动预热 - 开抢前5分钟自动写入Redis
+     * 同秒杀商品逻辑，兜底防止秒杀开始前没来得及自动把预热写入redis
+     */
+    @Scheduled(fixedDelay = 60 * 1000)
+    public void autoPreheatSeckillCoupons() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime preheatWindow = now.plusMinutes(5);
+        List<SeckillCoupon> coupons = seckillCouponMapper.selectList(
+                new LambdaQueryWrapper<SeckillCoupon>()
+                        .le(SeckillCoupon::getRushBeginTime, preheatWindow)
+                        .gt(SeckillCoupon::getRushEndTime, now)
+                        .last("LIMIT 100")
+        );
+        if (coupons.isEmpty()) {
+            return;
+        }
+        int count = 0;
+        for (SeckillCoupon coupon : coupons) {
+            try {
+                String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + coupon.getCouponId();
+                Boolean exists = stringRedisTemplate.hasKey(stockKey);
+                if (Boolean.FALSE.equals(exists)) {
+                    seckillService.preheatCouponStockToRedis(coupon.getCouponId());
+                    count++;
+                    log.info("定时自动预热：秒杀优惠券{}已预热", coupon.getCouponId());
+                }
+            } catch (Exception e) {
+                log.error("定时自动预热：秒杀优惠券{}预热失败", coupon.getCouponId(), e);
+            }
+        }
+        if (count > 0) {
+            log.info("定时自动预热：本次共预热{}张秒杀优惠券", count);
         }
     }
 }

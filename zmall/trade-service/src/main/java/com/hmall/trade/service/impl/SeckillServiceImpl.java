@@ -32,11 +32,13 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -457,21 +459,27 @@ public class SeckillServiceImpl implements ISeckillService {
     }
 
     private void doPreheatItem(SeckillItem item) {
-        // 1. 缓存秒杀库存
+        // 计算TTL：到秒杀结束时间为止
+        long ttlSeconds = Duration.between(LocalDateTime.now(), item.getRushEndTime()).getSeconds();
+        if (ttlSeconds <= 0) {
+            log.warn("秒杀商品已过期，跳过预热: itemId={}, rushEndTime={}", item.getItemId(), item.getRushEndTime());
+            return;
+        }
+        // 1. 缓存秒杀库存（TTL到秒杀结束时间）
         String stockKey = RedisConstants.SECKILL_STOCK_KEY + item.getItemId();
-        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(item.getSeckillStock()));
+        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(item.getSeckillStock()), ttlSeconds, TimeUnit.SECONDS);
         // 2. 清除之前的秒杀订单记录
         String orderKey = RedisConstants.SECKILL_ORDER_KEY + item.getItemId();
         stringRedisTemplate.delete(orderKey);
-        // 3. 缓存秒杀商品完整信息（秒杀价格、限购、时间等）
+        // 3. 缓存秒杀商品完整信息（秒杀价格、限购、时间等，TTL到秒杀结束时间）
         String itemKey = RedisConstants.SECKILL_ITEM_KEY + item.getItemId();
-        stringRedisTemplate.opsForValue().set(itemKey, JSONUtil.toJsonStr(item));
+        stringRedisTemplate.opsForValue().set(itemKey, JSONUtil.toJsonStr(item), ttlSeconds, TimeUnit.SECONDS);
         // 4. 缓存商品详情到与@HotKeyCache相同的key，确保手动预热后浏览也走缓存
         ItemDTO itemDTO = itemClient.queryItemById(item.getItemId());
         if (itemDTO != null) {
-            stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_ITEM_KEY + item.getItemId(), JSONUtil.toJsonStr(itemDTO));
+            stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_ITEM_KEY + item.getItemId(), JSONUtil.toJsonStr(itemDTO), ttlSeconds, TimeUnit.SECONDS);
         }
-        log.info("秒杀商品预热成功: itemId={}, stock={}, 已缓存商品详情+秒杀配置", item.getItemId(), item.getSeckillStock());
+        log.info("秒杀商品预热成功: itemId={}, stock={}, ttl={}s, 已缓存商品详情+秒杀配置", item.getItemId(), item.getSeckillStock(), ttlSeconds);
     }
 
     // ===== Admin: 秒杀优惠券管理（预热管理页面只显示秒杀券） =====
@@ -677,21 +685,27 @@ public class SeckillServiceImpl implements ISeckillService {
     }
 
     private void doPreheatCoupon(SeckillCoupon coupon) {
-        // 1. 缓存秒杀优惠券库存
+        // 计算TTL：到秒杀结束时间为止
+        long ttlSeconds = Duration.between(LocalDateTime.now(), coupon.getRushEndTime()).getSeconds();
+        if (ttlSeconds <= 0) {
+            log.warn("秒杀优惠券已过期，跳过预热: couponId={}, rushEndTime={}", coupon.getCouponId(), coupon.getRushEndTime());
+            return;
+        }
+        // 1. 缓存秒杀优惠券库存（TTL到秒杀结束时间）
         String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + coupon.getCouponId();
-        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(coupon.getSeckillStock()));
+        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(coupon.getSeckillStock()), ttlSeconds, TimeUnit.SECONDS);
         // 2. 清除之前的秒杀优惠券订单记录
         String orderKey = RedisConstants.SECKILL_COUPON_ORDER_KEY + coupon.getCouponId();
         stringRedisTemplate.delete(orderKey);
-        // 3. 缓存秒杀优惠券完整信息（限购、时间等）
+        // 3. 缓存秒杀优惠券完整信息（限购、时间等，TTL到秒杀结束时间）
         String couponKey = RedisConstants.SECKILL_COUPON_KEY + coupon.getCouponId();
-        stringRedisTemplate.opsForValue().set(couponKey, JSONUtil.toJsonStr(coupon));
+        stringRedisTemplate.opsForValue().set(couponKey, JSONUtil.toJsonStr(coupon), ttlSeconds, TimeUnit.SECONDS);
         // 4. 缓存优惠券详情到与getCouponFromCache相同的key，确保手动预热后下单也走缓存
         Coupon couponInfo = couponMapper.selectById(coupon.getCouponId());
         if (couponInfo != null) {
-            stringRedisTemplate.opsForValue().set("cache:coupon:" + coupon.getCouponId(), JSONUtil.toJsonStr(couponInfo));
+            stringRedisTemplate.opsForValue().set("cache:coupon:" + coupon.getCouponId(), JSONUtil.toJsonStr(couponInfo), ttlSeconds, TimeUnit.SECONDS);
         }
-        log.info("秒杀优惠券预热成功: couponId={}, stock={}, 已缓存优惠券详情+秒杀配置", coupon.getCouponId(), coupon.getSeckillStock());
+        log.info("秒杀优惠券预热成功: couponId={}, stock={}, ttl={}s, 已缓存优惠券详情+秒杀配置", coupon.getCouponId(), coupon.getSeckillStock(), ttlSeconds);
     }
 
     /**

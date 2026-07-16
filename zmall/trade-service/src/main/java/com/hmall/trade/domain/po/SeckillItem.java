@@ -19,6 +19,9 @@ public class SeckillItem implements Serializable {
 
     private Integer seckillStock;
 
+    /** 已售库存（下单成功++，取消订单--） */
+    private Integer soldStock;
+
     private Integer seckillPrice;
 
     private Integer maxPerUser;

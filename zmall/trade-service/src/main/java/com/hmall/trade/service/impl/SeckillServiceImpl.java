@@ -277,6 +277,7 @@ public class SeckillServiceImpl implements ISeckillService {
                 itemClient.updateItemType(itemId, 2);
                 // 2. 创建/更新秒杀记录
                 SeckillItem exist = seckillItemMapper.selectById(itemId);
+                int oldStock = exist != null && exist.getSeckillStock() != null ? exist.getSeckillStock() : 0;
                 SeckillItem seckillItem = exist != null ? exist : new SeckillItem();
                 seckillItem.setItemId(itemId);
                 seckillItem.setSeckillStock(request.getSeckillStock());
@@ -290,6 +291,17 @@ public class SeckillServiceImpl implements ISeckillService {
                     seckillItemMapper.insert(seckillItem);
                 }
                 scheduleSeckillItemExpire(seckillItem);
+                // 同步 Redis 配置缓存（防止旧配置被使用）
+                String itemKey = RedisConstants.SECKILL_ITEM_KEY + itemId;
+                String stockKey = RedisConstants.SECKILL_STOCK_KEY + itemId;
+                if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(stockKey))) {
+                    syncItemRedisStock(itemId, oldStock);
+                } else if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(itemKey))) {
+                    long ttlSeconds = Duration.between(LocalDateTime.now(), rushEndTime).getSeconds();
+                    if (ttlSeconds > 0) {
+                        stringRedisTemplate.opsForValue().set(itemKey, JSONUtil.toJsonStr(seckillItem), ttlSeconds, TimeUnit.SECONDS);
+                    }
+                }
                 count++;
             } catch (Exception e) {
                 log.error("批量设置秒杀商品失败: itemId={}", itemId, e);
@@ -322,6 +334,7 @@ public class SeckillServiceImpl implements ISeckillService {
         }
 
         SeckillItem exist = seckillItemMapper.selectById(dto.getItemId());
+        int oldStock = exist != null && exist.getSeckillStock() != null ? exist.getSeckillStock() : 0;
         SeckillItem seckillItem = exist != null ? exist : new SeckillItem();
         seckillItem.setItemId(dto.getItemId());
         if (dto.getSeckillStock() != null) seckillItem.setSeckillStock(dto.getSeckillStock());
@@ -336,16 +349,37 @@ public class SeckillServiceImpl implements ISeckillService {
         }
         // 重新调度秒杀到期自动转普通商品的延迟消息
         scheduleSeckillItemExpire(seckillItem);
-        log.info("秒杀商品信息更新成功: itemId={}", dto.getItemId());
+        // 同步 Redis 缓存（无论秒杀是否开始）
+        // - 秒杀已开始：重新预热（更新库存+配置）
+        // - 秒杀未开始：只更新 SECKILL_ITEM_KEY（配置），不更新库存（库存未预热）
+        String stockKey = RedisConstants.SECKILL_STOCK_KEY + dto.getItemId();
+        String itemKey = RedisConstants.SECKILL_ITEM_KEY + dto.getItemId();
+        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(stockKey))) {
+            // 库存已预热，增量调整 Redis 库存
+            syncItemRedisStock(dto.getItemId(), oldStock);
+        } else if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(itemKey))) {
+            // 库存未预热但配置已缓存（旧配置），更新配置为新值（防止旧 rushBeginTime 被使用）
+            long ttlSeconds = Duration.between(LocalDateTime.now(), rushEndTime).getSeconds();
+            if (ttlSeconds > 0) {
+                stringRedisTemplate.opsForValue().set(itemKey, JSONUtil.toJsonStr(seckillItem), ttlSeconds, TimeUnit.SECONDS);
+            }
+        }
+        log.info("秒杀商品信息更新成功: itemId={}, stock={}, rushBeginTime={}",
+                dto.getItemId(), seckillItem.getSeckillStock(), dto.getRushBeginTime());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateSeckillStock(Long itemId, Integer stock) {
+        SeckillItem old = seckillItemMapper.selectById(itemId);
+        int oldStock = old != null && old.getSeckillStock() != null ? old.getSeckillStock() : 0;
         SeckillItem seckillItem = new SeckillItem();
         seckillItem.setItemId(itemId);
         seckillItem.setSeckillStock(stock);
         seckillItemMapper.updateById(seckillItem);
+        // 同步更新 Redis 库存（不清除 userCountKeys，避免已下单用户被重置）
+        syncItemRedisStock(itemId, oldStock);
+        log.info("秒杀库存更新并同步Redis: itemId={}, stock={}", itemId, stock);
     }
 
     @Override
@@ -465,21 +499,67 @@ public class SeckillServiceImpl implements ISeckillService {
             log.warn("秒杀商品已过期，跳过预热: itemId={}, rushEndTime={}", item.getItemId(), item.getRushEndTime());
             return;
         }
-        // 1. 缓存秒杀库存（TTL到秒杀结束时间）
+        // 1. 计算剩余可秒杀库存 = 总库存 - 已售库存
+        int dbStock = item.getSeckillStock() != null ? item.getSeckillStock() : 0;
+        int soldStock = item.getSoldStock() != null ? item.getSoldStock() : 0;
+        int remaining = Math.max(0, dbStock - soldStock);
+        // 2. 缓存剩余秒杀库存（TTL到秒杀结束时间）
         String stockKey = RedisConstants.SECKILL_STOCK_KEY + item.getItemId();
-        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(item.getSeckillStock()), ttlSeconds, TimeUnit.SECONDS);
-        // 2. 清除之前的秒杀订单记录
+        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining), ttlSeconds, TimeUnit.SECONDS);
+        // 3. 清除之前的秒杀订单记录
         String orderKey = RedisConstants.SECKILL_ORDER_KEY + item.getItemId();
         stringRedisTemplate.delete(orderKey);
-        // 3. 缓存秒杀商品完整信息（秒杀价格、限购、时间等，TTL到秒杀结束时间）
+        // 4. 清除用户已购计数器（重置秒杀活动时必须清除，否则已下单用户无法再次下单）
+        var userCountKeys = stringRedisTemplate.keys(RedisConstants.SECKILL_USER_COUNT_KEY + item.getItemId() + ":*");
+        if (userCountKeys != null && !userCountKeys.isEmpty()) {
+            stringRedisTemplate.delete(userCountKeys);
+        }
+        // 5. 缓存秒杀商品完整信息（秒杀价格、限购、时间等，TTL到秒杀结束时间）
         String itemKey = RedisConstants.SECKILL_ITEM_KEY + item.getItemId();
         stringRedisTemplate.opsForValue().set(itemKey, JSONUtil.toJsonStr(item), ttlSeconds, TimeUnit.SECONDS);
-        // 4. 缓存商品详情到与@HotKeyCache相同的key，确保手动预热后浏览也走缓存
+        // 6. 缓存商品详情到与@HotKeyCache相同的key，确保手动预热后浏览也走缓存
         ItemDTO itemDTO = itemClient.queryItemById(item.getItemId());
         if (itemDTO != null) {
             stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_ITEM_KEY + item.getItemId(), JSONUtil.toJsonStr(itemDTO), ttlSeconds, TimeUnit.SECONDS);
         }
-        log.info("秒杀商品预热成功: itemId={}, stock={}, ttl={}s, 已缓存商品详情+秒杀配置", item.getItemId(), item.getSeckillStock(), ttlSeconds);
+        log.info("秒杀商品预热成功: itemId={}, 总库存={}, 已售={}, 剩余={}, ttl={}s",
+                item.getItemId(), dbStock, soldStock, remaining, ttlSeconds);
+    }
+
+    /**
+     * 仅同步 Redis 库存（不清除 userCountKeys 和 orderKey）
+     * 用于管理员修改库存时，用 Redis 增量调整（newStock - oldStock），不依赖 sold_stock
+     * 避免 MQ 消费延迟导致 sold_stock 不准，Redis 库存被错误抬高
+     */
+    private void syncItemRedisStock(Long itemId, int oldStock) {
+        String stockKey = RedisConstants.SECKILL_STOCK_KEY + itemId;
+        if (!Boolean.TRUE.equals(stringRedisTemplate.hasKey(stockKey))) {
+            return; // Redis 未预热，无需同步
+        }
+        SeckillItem item = seckillItemMapper.selectById(itemId);
+        if (item == null || item.getRushEndTime() == null
+                || !item.getRushEndTime().isAfter(LocalDateTime.now())) {
+            return; // 已过期
+        }
+        long ttlSeconds = Duration.between(LocalDateTime.now(), item.getRushEndTime()).getSeconds();
+        if (ttlSeconds <= 0) return;
+        int newStock = item.getSeckillStock() != null ? item.getSeckillStock() : 0;
+        long delta = newStock - oldStock;
+        // 用 Redis 增量调整，不依赖 sold_stock（避免 MQ 延迟导致超卖）
+        long newRedis = stringRedisTemplate.opsForValue().increment(stockKey, delta);
+        // 边界保护：0 ≤ Redis ≤ newStock
+        if (newRedis < 0) {
+            stringRedisTemplate.opsForValue().set(stockKey, "0", ttlSeconds, TimeUnit.SECONDS);
+            newRedis = 0;
+        } else if (newRedis > newStock) {
+            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(newStock), ttlSeconds, TimeUnit.SECONDS);
+            newRedis = newStock;
+        }
+        // 同步秒杀商品配置（maxPerUser 等可能也被修改）
+        String itemKey = RedisConstants.SECKILL_ITEM_KEY + itemId;
+        stringRedisTemplate.opsForValue().set(itemKey, JSONUtil.toJsonStr(item), ttlSeconds, TimeUnit.SECONDS);
+        log.info("同步秒杀商品Redis库存(增量调整): itemId={}, 库存变化 {}->{} (delta={}), Redis={}",
+                itemId, oldStock, newStock, delta, newRedis);
     }
 
     // ===== Admin: 秒杀优惠券管理（预热管理页面只显示秒杀券） =====
@@ -510,6 +590,7 @@ public class SeckillServiceImpl implements ISeckillService {
         }
 
         SeckillCoupon exist = seckillCouponMapper.selectById(dto.getCouponId());
+        int oldCouponStock = exist != null && exist.getSeckillStock() != null ? exist.getSeckillStock() : 0;
         SeckillCoupon seckillCoupon = exist != null ? exist : new SeckillCoupon();
         seckillCoupon.setCouponId(dto.getCouponId());
         seckillCoupon.setSeckillStock(dto.getSeckillStock());
@@ -523,6 +604,17 @@ public class SeckillServiceImpl implements ISeckillService {
         }
         // 调度秒杀优惠券到期自动下架的延迟消息
         scheduleSeckillCouponExpire(seckillCoupon);
+        // 同步 Redis 缓存（无论秒杀是否开始）
+        String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + dto.getCouponId();
+        String couponKey = RedisConstants.SECKILL_COUPON_KEY + dto.getCouponId();
+        if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(stockKey))) {
+            syncCouponRedisStock(dto.getCouponId(), oldCouponStock);
+        } else if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(couponKey))) {
+            long ttlSeconds = Duration.between(LocalDateTime.now(), rushEndTime).getSeconds();
+            if (ttlSeconds > 0) {
+                stringRedisTemplate.opsForValue().set(couponKey, JSONUtil.toJsonStr(seckillCoupon), ttlSeconds, TimeUnit.SECONDS);
+            }
+        }
         log.info("秒杀优惠券预热设置成功: couponId={}, stock={}, rushBeginTime={}",
                 dto.getCouponId(), dto.getSeckillStock(), dto.getRushBeginTime());
     }
@@ -559,6 +651,7 @@ public class SeckillServiceImpl implements ISeckillService {
                 }
                 // 2. 创建/更新秒杀优惠券记录
                 SeckillCoupon exist = seckillCouponMapper.selectById(couponId);
+                int oldCouponStock = exist != null && exist.getSeckillStock() != null ? exist.getSeckillStock() : 0;
                 SeckillCoupon seckillCoupon = exist != null ? exist : new SeckillCoupon();
                 seckillCoupon.setCouponId(couponId);
                 seckillCoupon.setSeckillStock(request.getSeckillStock());
@@ -571,6 +664,17 @@ public class SeckillServiceImpl implements ISeckillService {
                     seckillCouponMapper.insert(seckillCoupon);
                 }
                 scheduleSeckillCouponExpire(seckillCoupon);
+                // 同步 Redis 配置缓存
+                String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + couponId;
+                String couponKey = RedisConstants.SECKILL_COUPON_KEY + couponId;
+                if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(stockKey))) {
+                    syncCouponRedisStock(couponId, oldCouponStock);
+                } else if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(couponKey))) {
+                    long ttlSeconds = Duration.between(LocalDateTime.now(), rushEndTime).getSeconds();
+                    if (ttlSeconds > 0) {
+                        stringRedisTemplate.opsForValue().set(couponKey, JSONUtil.toJsonStr(seckillCoupon), ttlSeconds, TimeUnit.SECONDS);
+                    }
+                }
                 count++;
             } catch (Exception e) {
                 log.error("批量设置秒杀优惠券失败: couponId={}", couponId, e);
@@ -587,8 +691,12 @@ public class SeckillServiceImpl implements ISeckillService {
         if (seckillCoupon == null) {
             throw new BadRequestException("秒杀优惠券预热信息不存在");
         }
+        int oldCouponStock = seckillCoupon.getSeckillStock() != null ? seckillCoupon.getSeckillStock() : 0;
         seckillCoupon.setSeckillStock(stock);
         seckillCouponMapper.updateById(seckillCoupon);
+        // 同步更新 Redis 库存（不清除 userCountKeys）
+        syncCouponRedisStock(couponId, oldCouponStock);
+        log.info("秒杀优惠券库存更新并同步Redis: couponId={}, stock={}", couponId, stock);
     }
 
     @Override
@@ -691,21 +799,67 @@ public class SeckillServiceImpl implements ISeckillService {
             log.warn("秒杀优惠券已过期，跳过预热: couponId={}, rushEndTime={}", coupon.getCouponId(), coupon.getRushEndTime());
             return;
         }
-        // 1. 缓存秒杀优惠券库存（TTL到秒杀结束时间）
+        // 1. 计算剩余可秒杀库存 = 总库存 - 已售库存
+        int dbStock = coupon.getSeckillStock() != null ? coupon.getSeckillStock() : 0;
+        int soldStock = coupon.getSoldStock() != null ? coupon.getSoldStock() : 0;
+        int remaining = Math.max(0, dbStock - soldStock);
+        // 2. 缓存剩余秒杀优惠券库存（TTL到秒杀结束时间）
         String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + coupon.getCouponId();
-        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(coupon.getSeckillStock()), ttlSeconds, TimeUnit.SECONDS);
-        // 2. 清除之前的秒杀优惠券订单记录
+        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining), ttlSeconds, TimeUnit.SECONDS);
+        // 3. 清除之前的秒杀优惠券订单记录
         String orderKey = RedisConstants.SECKILL_COUPON_ORDER_KEY + coupon.getCouponId();
         stringRedisTemplate.delete(orderKey);
-        // 3. 缓存秒杀优惠券完整信息（限购、时间等，TTL到秒杀结束时间）
+        // 4. 清除用户已购计数器（重置秒杀活动时必须清除）
+        var userCountKeys = stringRedisTemplate.keys(RedisConstants.SECKILL_COUPON_USER_COUNT_KEY + coupon.getCouponId() + ":*");
+        if (userCountKeys != null && !userCountKeys.isEmpty()) {
+            stringRedisTemplate.delete(userCountKeys);
+        }
+        // 5. 缓存秒杀优惠券完整信息（限购、时间等，TTL到秒杀结束时间）
         String couponKey = RedisConstants.SECKILL_COUPON_KEY + coupon.getCouponId();
         stringRedisTemplate.opsForValue().set(couponKey, JSONUtil.toJsonStr(coupon), ttlSeconds, TimeUnit.SECONDS);
-        // 4. 缓存优惠券详情到与getCouponFromCache相同的key，确保手动预热后下单也走缓存
+        // 6. 缓存优惠券详情到与getCouponFromCache相同的key，确保手动预热后下单也走缓存
         Coupon couponInfo = couponMapper.selectById(coupon.getCouponId());
         if (couponInfo != null) {
             stringRedisTemplate.opsForValue().set("cache:coupon:" + coupon.getCouponId(), JSONUtil.toJsonStr(couponInfo), ttlSeconds, TimeUnit.SECONDS);
         }
-        log.info("秒杀优惠券预热成功: couponId={}, stock={}, ttl={}s, 已缓存优惠券详情+秒杀配置", coupon.getCouponId(), coupon.getSeckillStock(), ttlSeconds);
+        log.info("秒杀优惠券预热成功: couponId={}, 总库存={}, 已售={}, 剩余={}, ttl={}s",
+                coupon.getCouponId(), dbStock, soldStock, remaining, ttlSeconds);
+    }
+
+    /**
+     * 仅同步 Redis 库存（不清除 userCountKeys 和 orderKey）
+     * 用于管理员修改库存时，用 Redis 增量调整（newStock - oldStock），不依赖 sold_stock
+     * 避免 MQ 消费延迟导致 sold_stock 不准，Redis 库存被错误抬高
+     */
+    private void syncCouponRedisStock(Long couponId, int oldStock) {
+        String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + couponId;
+        if (!Boolean.TRUE.equals(stringRedisTemplate.hasKey(stockKey))) {
+            return; // Redis 未预热，无需同步
+        }
+        SeckillCoupon coupon = seckillCouponMapper.selectById(couponId);
+        if (coupon == null || coupon.getRushEndTime() == null
+                || !coupon.getRushEndTime().isAfter(LocalDateTime.now())) {
+            return; // 已过期
+        }
+        long ttlSeconds = Duration.between(LocalDateTime.now(), coupon.getRushEndTime()).getSeconds();
+        if (ttlSeconds <= 0) return;
+        int newStock = coupon.getSeckillStock() != null ? coupon.getSeckillStock() : 0;
+        long delta = newStock - oldStock;
+        // 用 Redis 增量调整，不依赖 sold_stock（避免 MQ 延迟导致超卖）
+        long newRedis = stringRedisTemplate.opsForValue().increment(stockKey, delta);
+        // 边界保护：0 ≤ Redis ≤ newStock
+        if (newRedis < 0) {
+            stringRedisTemplate.opsForValue().set(stockKey, "0", ttlSeconds, TimeUnit.SECONDS);
+            newRedis = 0;
+        } else if (newRedis > newStock) {
+            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(newStock), ttlSeconds, TimeUnit.SECONDS);
+            newRedis = newStock;
+        }
+        // 同步秒杀券配置（maxPerUser 等可能也被修改）
+        String couponKey = RedisConstants.SECKILL_COUPON_KEY + couponId;
+        stringRedisTemplate.opsForValue().set(couponKey, JSONUtil.toJsonStr(coupon), ttlSeconds, TimeUnit.SECONDS);
+        log.info("同步秒杀券Redis库存(增量调整): couponId={}, 库存变化 {}->{} (delta={}), Redis={}",
+                couponId, oldStock, newStock, delta, newRedis);
     }
 
     /**

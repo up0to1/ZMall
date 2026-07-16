@@ -1,6 +1,7 @@
 package com.hmall.trade.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmall.api.vo.MerchantOrderVO;
@@ -18,6 +19,8 @@ import com.hmall.trade.domain.dto.OrderFormDTO;
 import com.hmall.trade.domain.po.*;
 import com.hmall.trade.mapper.CouponMapper;
 import com.hmall.trade.mapper.OrderMapper;
+import com.hmall.trade.mapper.SeckillCouponMapper;
+import com.hmall.trade.mapper.SeckillItemMapper;
 import com.hmall.trade.mapper.UserCouponMapper;
 import com.hmall.trade.service.ICouponService;
 import com.hmall.trade.service.IOrderDetailService;
@@ -29,11 +32,13 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -47,6 +52,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final RabbitMqHelper rabbitMqHelper;
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
+    private final SeckillItemMapper seckillItemMapper;
+    private final SeckillCouponMapper seckillCouponMapper;
     private final ICouponService couponService;
     private final StringRedisTemplate stringRedisTemplate;
 
@@ -300,7 +307,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                     MqConstants.DELAY_EXCHANGE_NAME,
                     MqConstants.DELAY_ORDER_KEY,
                     orderId,
-                    15 * 60 * 1000, // 15分钟超时
+                    30 * 60 * 1000, // 30分钟超时
                     3);
         } catch (Exception e) {
             log.error("发送秒杀订单延迟消息失败", e);
@@ -526,17 +533,32 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 if (order.getCouponId() != null) {
                     Coupon coupon = couponMapper.selectById(order.getCouponId());
                     if (coupon != null && coupon.getCouponType() != null && coupon.getCouponType() == 2) {
-                        // 恢复Redis秒杀库存
                         String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + order.getCouponId();
-                        stringRedisTemplate.opsForValue().increment(stockKey);
-                        // 恢复用户已领数量
+                        // 1. DB: sold_stock - 1（原子操作，先扣再读）
+                        seckillCouponMapper.update(null,
+                                new LambdaUpdateWrapper<SeckillCoupon>()
+                                        .eq(SeckillCoupon::getCouponId, order.getCouponId())
+                                        .setSql("sold_stock = GREATEST(0, sold_stock - 1)"));
+                        // 2. 重新读取DB计算剩余库存并同步Redis（避免 increment 超过 seckill_stock 上限）
+                        SeckillCoupon seckillCoupon = seckillCouponMapper.selectById(order.getCouponId());
+                        if (seckillCoupon != null && seckillCoupon.getRushEndTime() != null
+                                && seckillCoupon.getRushEndTime().isAfter(LocalDateTime.now())) {
+                            int dbStock = seckillCoupon.getSeckillStock() != null ? seckillCoupon.getSeckillStock() : 0;
+                            int soldStock = seckillCoupon.getSoldStock() != null ? seckillCoupon.getSoldStock() : 0;
+                            int remaining = Math.max(0, dbStock - soldStock);
+                            long ttl = Duration.between(LocalDateTime.now(), seckillCoupon.getRushEndTime()).getSeconds();
+                            if (ttl > 0) {
+                                stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining), ttl, TimeUnit.SECONDS);
+                            }
+                        }
+                        // 3. 恢复用户已领数量
                         String userCountKey = RedisConstants.SECKILL_COUPON_USER_COUNT_KEY
                                 + order.getCouponId() + ":" + order.getUserId();
                         stringRedisTemplate.opsForValue().decrement(userCountKey);
-                        // 移除订单集合中的用户
+                        // 4. 移除订单集合中的用户
                         String orderKey = RedisConstants.SECKILL_COUPON_ORDER_KEY + order.getCouponId();
                         stringRedisTemplate.opsForSet().remove(orderKey, order.getUserId().toString());
-                        log.info("秒杀券购买订单取消，已回退Redis库存: couponId={}, userId={}",
+                        log.info("秒杀券购买订单取消，已回退DB已售和Redis库存: couponId={}, userId={}",
                                 order.getCouponId(), order.getUserId());
                     }
                 }
@@ -560,15 +582,31 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                         .list();
                 for (OrderDetail detail : seckillDetails) {
                     String stockKey = RedisConstants.SECKILL_STOCK_KEY + detail.getItemId();
-                    stringRedisTemplate.opsForValue().increment(stockKey);
-                    // 恢复用户已购数量
+                    // 1. DB: sold_stock - 1（原子操作，先扣再读）
+                    seckillItemMapper.update(null,
+                            new LambdaUpdateWrapper<SeckillItem>()
+                                    .eq(SeckillItem::getItemId, detail.getItemId())
+                                    .setSql("sold_stock = GREATEST(0, sold_stock - 1)"));
+                    // 2. 重新读取DB计算剩余库存并同步Redis（避免 increment 超过 seckill_stock 上限）
+                    SeckillItem seckillItem = seckillItemMapper.selectById(detail.getItemId());
+                    if (seckillItem != null && seckillItem.getRushEndTime() != null
+                            && seckillItem.getRushEndTime().isAfter(LocalDateTime.now())) {
+                        int dbStock = seckillItem.getSeckillStock() != null ? seckillItem.getSeckillStock() : 0;
+                        int soldStock = seckillItem.getSoldStock() != null ? seckillItem.getSoldStock() : 0;
+                        int remaining = Math.max(0, dbStock - soldStock);
+                        long ttl = Duration.between(LocalDateTime.now(), seckillItem.getRushEndTime()).getSeconds();
+                        if (ttl > 0) {
+                            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining), ttl, TimeUnit.SECONDS);
+                        }
+                    }
+                    // 3. 恢复用户已购数量
                     String userCountKey = RedisConstants.SECKILL_USER_COUNT_KEY
                             + detail.getItemId() + ":" + order.getUserId();
                     stringRedisTemplate.opsForValue().decrement(userCountKey);
-                    // 移除订单集合中的用户
+                    // 4. 移除订单集合中的用户
                     String orderKey = RedisConstants.SECKILL_ORDER_KEY + detail.getItemId();
                     stringRedisTemplate.opsForSet().remove(orderKey, order.getUserId().toString());
-                    log.info("秒杀商品订单取消，已回退Redis库存: itemId={}, userId={}",
+                    log.info("秒杀商品订单取消，已回退DB已售和Redis库存: itemId={}, userId={}",
                             detail.getItemId(), order.getUserId());
                 }
                 // 恢复DB库存
@@ -656,10 +694,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 vo.setItemName("优惠券购买订单");
                 vo.setItemCount(1);
             } else if (order.getOrderType() != null && order.getOrderType() == 3) {
-                vo.setItemName("秒杀商品订单");
+                // 秒杀商品订单：显示真实商品名 + [秒杀] 前缀提示
                 List<OrderDetail> details = detailService.lambdaQuery()
                         .eq(OrderDetail::getOrderId, order.getId()).list();
-                vo.setItemCount(details != null ? details.stream().mapToInt(OrderDetail::getNum).sum() : 1);
+                if (details != null && !details.isEmpty()) {
+                    vo.setItemName("[秒杀] " + details.get(0).getName());
+                    vo.setItemCount(details.stream().mapToInt(OrderDetail::getNum).sum());
+                } else {
+                    vo.setItemName("[秒杀] 秒杀商品订单");
+                    vo.setItemCount(1);
+                }
             } else {
                 List<OrderDetail> details = detailService.lambdaQuery()
                         .eq(OrderDetail::getOrderId, order.getId()).list();
@@ -983,12 +1027,33 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     /**
      * 回退秒杀券Redis库存
+     * 注意：秒杀券在这里只回退Redis的userCount和orderSet，不回退stockKey
+     * 因为秒杀券的stockKey回退已在 cancelOrder 的 orderType=2 分支中通过 sold_stock 重新计算处理
+     * 此方法仅在秒杀商品订单（orderType=3）取消时调用，用于回退其关联的秒杀券
      */
     private void revertSeckillCouponRedisStock(Long couponId, Long userId) {
-        String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + couponId;
-        stringRedisTemplate.opsForValue().increment(stockKey);
+        // 1. DB: sold_stock - 1（原子操作）
+        seckillCouponMapper.update(null,
+                new LambdaUpdateWrapper<SeckillCoupon>()
+                        .eq(SeckillCoupon::getCouponId, couponId)
+                        .setSql("sold_stock = GREATEST(0, sold_stock - 1)"));
+        // 2. 重新读取DB计算剩余库存并同步Redis
+        SeckillCoupon seckillCoupon = seckillCouponMapper.selectById(couponId);
+        if (seckillCoupon != null && seckillCoupon.getRushEndTime() != null
+                && seckillCoupon.getRushEndTime().isAfter(LocalDateTime.now())) {
+            int dbStock = seckillCoupon.getSeckillStock() != null ? seckillCoupon.getSeckillStock() : 0;
+            int soldStock = seckillCoupon.getSoldStock() != null ? seckillCoupon.getSoldStock() : 0;
+            int remaining = Math.max(0, dbStock - soldStock);
+            long ttl = Duration.between(LocalDateTime.now(), seckillCoupon.getRushEndTime()).getSeconds();
+            if (ttl > 0) {
+                String stockKey = RedisConstants.SECKILL_COUPON_STOCK_KEY + couponId;
+                stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining), ttl, TimeUnit.SECONDS);
+            }
+        }
+        // 3. 恢复用户已领数量
         String userCountKey = RedisConstants.SECKILL_COUPON_USER_COUNT_KEY + couponId + ":" + userId;
         stringRedisTemplate.opsForValue().decrement(userCountKey);
+        // 4. 移除订单集合中的用户
         String orderKey = RedisConstants.SECKILL_COUPON_ORDER_KEY + couponId;
         stringRedisTemplate.opsForSet().remove(orderKey, userId.toString());
         log.info("回退秒杀券Redis库存: couponId={}, userId={}", couponId, userId);
@@ -1232,10 +1297,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 vo.setItemName("优惠券购买订单");
                 vo.setItemCount(1);
             } else if (order.getOrderType() != null && order.getOrderType() == 3) {
-                vo.setItemName("秒杀商品订单");
+                // 秒杀商品订单：显示真实商品名 + [秒杀] 前缀提示
                 List<OrderDetail> details = detailService.lambdaQuery()
                         .eq(OrderDetail::getOrderId, order.getId()).list();
-                vo.setItemCount(details != null ? details.stream().mapToInt(OrderDetail::getNum).sum() : 1);
+                if (details != null && !details.isEmpty()) {
+                    vo.setItemName("[秒杀] " + details.get(0).getName());
+                    vo.setItemCount(details.stream().mapToInt(OrderDetail::getNum).sum());
+                } else {
+                    vo.setItemName("[秒杀] 秒杀商品订单");
+                    vo.setItemCount(1);
+                }
             } else {
                 List<OrderDetail> details = detailService.lambdaQuery()
                         .eq(OrderDetail::getOrderId, order.getId()).list();

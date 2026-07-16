@@ -1,0 +1,11 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1783657180750,382,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,167,645,1,1,http://localhost:8080/seckill/100001964366,381,0,64
+1783657181576,19,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,19,0,0
+1783657181602,20,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,20,0,0
+1783657181629,19,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,19,0,0
+1783657181655,20,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,20,0,0
+1783657181682,17,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,17,0,0
+1783657181705,18,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,18,0,0
+1783657181729,16,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,16,0,0
+1783657181751,18,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,18,0,0
+1783657181774,19,HTTP请求-一人一单,200,OK,秒杀商品一人一单组 1-1,text,true,,152,645,1,1,http://localhost:8080/seckill/100001964366,19,0,0

@@ -1,0 +1,11 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1783664808021,28,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,169,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,28,0,7
+1783664808107,10,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,10,0,0
+1783664808120,12,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,12,0,0
+1783664808136,8,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,8,0,0
+1783664808146,9,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,9,0,0
+1783664808157,8,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,8,0,0
+1783664808168,8,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,8,0,0
+1783664808178,8,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,8,0,0
+1783664808188,7,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,7,0,0
+1783664808198,7,HTTP请求-优惠券一人一单,200,OK,秒杀优惠券一人一单组 1-1,text,true,,152,650,1,1,http://localhost:8080/seckill/coupon/2075438705285144578,7,0,0

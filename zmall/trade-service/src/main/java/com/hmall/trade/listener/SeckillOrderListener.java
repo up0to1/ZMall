@@ -1,6 +1,7 @@
 package com.hmall.trade.listener;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.hmall.api.client.ItemClient;
 import com.hmall.api.dto.ItemDTO;
 import com.hmall.common.constants.MqConstants;
@@ -107,6 +108,12 @@ public class SeckillOrderListener {
             int seckillPrice = seckillItem != null ? seckillItem.getSeckillPrice() : item.getPrice();
             orderService.createSeckillOrder(
                     message.getOrderId(), message.getUserId(), message.getItemId(), 1, seckillPrice, message.getCouponId());
+
+            // 7.更新已售库存 sold_stock++
+            seckillItemMapper.update(null,
+                    new LambdaUpdateWrapper<SeckillItem>()
+                            .eq(SeckillItem::getItemId, message.getItemId())
+                            .setSql("sold_stock = sold_stock + 1"));
 
             log.info("秒杀正式订单创建成功: orderId={}", message.getOrderId());
         } finally {

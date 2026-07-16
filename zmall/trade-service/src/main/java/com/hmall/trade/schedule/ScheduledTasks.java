@@ -18,6 +18,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -97,11 +98,11 @@ public class ScheduledTasks {
 
     /**
      * 3. 秒杀商品订单超时未支付自动取消 - 兜底
-     * 扫描orderType=3（秒杀商品）且status=1（未支付）且创建时间超过15分钟的订单
+     * 扫描orderType=3（秒杀商品）且status=1（未支付）且创建时间超过30分钟的订单
      */
     @Scheduled(fixedDelay = 5 * 60 * 1000)
     public void cancelTimeoutSeckillOrders() {
-        LocalDateTime threshold = LocalDateTime.now().minusMinutes(15);
+        LocalDateTime threshold = LocalDateTime.now().minusMinutes(30);
         List<Order> orders = orderMapper.selectList(
                 new LambdaQueryWrapper<Order>()
                         .eq(Order::getStatus, 1)
@@ -210,7 +211,8 @@ public class ScheduledTasks {
     /**
      * 7. 秒杀商品自动预热 - 开抢前5分钟自动写入Redis
      * 扫描即将开抢(5分钟内)或已开抢但未过期的秒杀商品
-     * 若Redis中尚未预热则自动预热，TTL到秒杀结束时间
+     * - 若Redis中尚未预热则自动预热
+     * - 若已预热，则同步DB实际剩余可秒杀库存（seckill_stock - sold_stock）
      * 兜底：防止秒杀开始前没来得及自动把预热写入redis，已开抢的也补预热
      */
     @Scheduled(fixedDelay = 60 * 1000)
@@ -235,6 +237,23 @@ public class ScheduledTasks {
                     seckillService.preheatStockToRedis(item.getItemId());
                     count++;
                     log.info("定时自动预热：秒杀商品{}已预热", item.getItemId());
+                } else {
+                    // 已预热：同步DB实际剩余可秒杀库存 = 总库存 - 已售库存
+                    long ttlSeconds = Duration.between(now, item.getRushEndTime()).getSeconds();
+                    if (ttlSeconds <= 0) continue;
+                    int dbStock = item.getSeckillStock() != null ? item.getSeckillStock() : 0;
+                    int soldStock = item.getSoldStock() != null ? item.getSoldStock() : 0;
+                    int remaining = Math.max(0, dbStock - soldStock);
+                    String currentRedisStock = stringRedisTemplate.opsForValue().get(stockKey);
+                    int currentStock = 0;
+                    try { currentStock = Integer.parseInt(currentRedisStock); } catch (Exception ignored) {}
+                    // 只降低不抬高：避免MQ消费延迟时覆盖Lua脚本的库存扣减
+                    // Redis < remaining 说明Lua已扣减但sold_stock还没更新（MQ消费中），不处理
+                    // Redis > remaining 说明库存虚高（如管理员降库存），需要降低防超卖
+                    if (currentStock > remaining) {
+                        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining), ttlSeconds, java.util.concurrent.TimeUnit.SECONDS);
+                        log.info("定时同步库存(降低)：秒杀商品{} Redis库存 {} -> {} (DB总{}-已售{})", item.getItemId(), currentStock, remaining, dbStock, soldStock);
+                    }
                 }
             } catch (Exception e) {
                 log.error("定时自动预热：秒杀商品{}预热失败", item.getItemId(), e);
@@ -248,6 +267,7 @@ public class ScheduledTasks {
     /**
      * 8. 秒杀优惠券自动预热 - 开抢前5分钟自动写入Redis
      * 同秒杀商品逻辑，兜底防止秒杀开始前没来得及自动把预热写入redis
+     * 已预热的会同步DB实际剩余可秒杀库存（seckill_stock - sold_stock）
      */
     @Scheduled(fixedDelay = 60 * 1000)
     public void autoPreheatSeckillCoupons() {
@@ -271,6 +291,21 @@ public class ScheduledTasks {
                     seckillService.preheatCouponStockToRedis(coupon.getCouponId());
                     count++;
                     log.info("定时自动预热：秒杀优惠券{}已预热", coupon.getCouponId());
+                } else {
+                    // 已预热：同步DB实际剩余可秒杀库存 = 总库存 - 已售库存
+                    long ttlSeconds = Duration.between(now, coupon.getRushEndTime()).getSeconds();
+                    if (ttlSeconds <= 0) continue;
+                    int dbStock = coupon.getSeckillStock() != null ? coupon.getSeckillStock() : 0;
+                    int soldStock = coupon.getSoldStock() != null ? coupon.getSoldStock() : 0;
+                    int remaining = Math.max(0, dbStock - soldStock);
+                    String currentRedisStock = stringRedisTemplate.opsForValue().get(stockKey);
+                    int currentStock = 0;
+                    try { currentStock = Integer.parseInt(currentRedisStock); } catch (Exception ignored) {}
+                    // 只降低不抬高：避免MQ消费延迟时覆盖Lua脚本的库存扣减
+                    if (currentStock > remaining) {
+                        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining), ttlSeconds, java.util.concurrent.TimeUnit.SECONDS);
+                        log.info("定时同步库存(降低)：秒杀优惠券{} Redis库存 {} -> {} (DB总{}-已售{})", coupon.getCouponId(), currentStock, remaining, dbStock, soldStock);
+                    }
                 }
             } catch (Exception e) {
                 log.error("定时自动预热：秒杀优惠券{}预热失败", coupon.getCouponId(), e);

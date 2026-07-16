@@ -1,14 +1,17 @@
 package com.hmall.trade.listener;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.hmall.api.dto.SeckillCouponMessage;
 import com.hmall.common.config.RedisConstants;
 import com.hmall.common.config.RedisIdWorker;
 import com.hmall.common.constants.MqConstants;
 import com.hmall.common.utils.RabbitMqHelper;
 import com.hmall.trade.domain.po.Coupon;
+import com.hmall.trade.domain.po.SeckillCoupon;
 import com.hmall.trade.domain.po.UserCoupon;
 import com.hmall.trade.mapper.CouponMapper;
+import com.hmall.trade.mapper.SeckillCouponMapper;
 import com.hmall.trade.mapper.UserCouponMapper;
 import com.hmall.trade.service.IOrderService;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +38,7 @@ public class SeckillCouponOrderListener {
 
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
+    private final SeckillCouponMapper seckillCouponMapper;
     private final RedisIdWorker redisIdWorker;
     private final RedissonClient redissonClient;
     private final IOrderService orderService;
@@ -118,6 +122,12 @@ public class SeckillCouponOrderListener {
 
                 log.info("免费秒杀券领取成功: userId={}, couponId={}", message.getUserId(), message.getCouponId());
             }
+
+            // 更新已售库存 sold_stock++
+            seckillCouponMapper.update(null,
+                    new LambdaUpdateWrapper<SeckillCoupon>()
+                            .eq(SeckillCoupon::getCouponId, message.getCouponId())
+                            .setSql("sold_stock = sold_stock + 1"));
         } finally {
             lock.unlock();
         }

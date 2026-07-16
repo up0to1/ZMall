@@ -350,12 +350,9 @@ Vue.component('seckill-coupon-page', {
                     data.rushBeginTime = this.formatDateForApi(this.form.seckillBegin);
                     data.rushEndTime = this.formatDateForApi(this.form.seckillEnd);
                 }
-                let req;
-                if (this.form.id) {
-                    req = ZM.http.put('/seckill/admin/coupon/' + this.form.couponId + '/stock/' + this.form.stock);
-                } else {
-                    req = ZM.http.post('/seckill/admin/coupon', data);
-                }
+                // 编辑和新建都调用 POST /seckill/admin/coupon
+                // createSeckillCoupon 方法支持 exist 更新（exist != null 时 updateById）
+                let req = ZM.http.post('/seckill/admin/coupon', data);
                 req.then(() => {
                     this.submitLoading = false;
                     this.$message.success('操作成功');

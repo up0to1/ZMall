@@ -552,9 +552,12 @@ public class CouponServiceImpl implements ICouponService {
                     throw new BadRequestException("购买价格必须小于优惠券可抵押的优惠金额");
                 }
             } else if (dto.getType() == 2) {
-                int maxDiscount = dto.getThresholdAmount() * (100 - dto.getDiscountValue()) / 100;
-                if (dto.getPurchasePrice() >= maxDiscount) {
-                    throw new BadRequestException("购买价格必须小于优惠券可抵押的优惠金额");
+                Integer threshold = dto.getThresholdAmount();
+                if (threshold != null && threshold > 0) {
+                    int maxDiscount = threshold * (100 - dto.getDiscountValue()) / 100;
+                    if (dto.getPurchasePrice() >= maxDiscount) {
+                        throw new BadRequestException("购买价格必须小于优惠券可抵押的优惠金额");
+                    }
                 }
             }
         }

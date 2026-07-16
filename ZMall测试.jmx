@@ -1,0 +1,1853 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="ZMall测试">
+      <boolProp name="TestPlan.serialize_threadgroups">true</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+      <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="tokens">
+        <stringProp name="filename">${__P(CSV_FILE,H:/Desktop/WorkPlace/Project/Cross_Big_Project/ZMall/users_tokens_r1.csv)}</stringProp>
+        <stringProp name="fileEncoding"></stringProp>
+        <stringProp name="variableNames">username,password,token</stringProp>
+        <boolProp name="ignoreFirstLine">true</boolProp>
+        <stringProp name="delimiter">,</stringProp>
+        <boolProp name="quotedData">false</boolProp>
+        <boolProp name="recycle">true</boolProp>
+        <boolProp name="stopThread">false</boolProp>
+        <stringProp name="shareMode">shareMode.all</stringProp>
+        <stringProp name="TestPlan.comments">允许循环读取，支持多次测试</stringProp>
+      </CSVDataSet>
+      <hashTree/>
+      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="HOST" elementType="Argument">
+            <stringProp name="Argument.name">HOST</stringProp>
+            <stringProp name="Argument.value">localhost</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="PORT" elementType="Argument">
+            <stringProp name="Argument.name">PORT</stringProp>
+            <stringProp name="Argument.value">8080</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="ITEM_ID" elementType="Argument">
+            <stringProp name="Argument.name">ITEM_ID</stringProp>
+            <stringProp name="Argument.value">100001964366</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="COUPON_ID" elementType="Argument">
+            <stringProp name="Argument.name">COUPON_ID</stringProp>
+            <stringProp name="Argument.value">2075438705285144578</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="TEST_BASE" elementType="Argument">
+            <stringProp name="Argument.name">TEST_BASE</stringProp>
+            <stringProp name="Argument.value">h:/Desktop/WorkPlace/Project/Cross_Big_Project/ZMall/test-results</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="TEST_NAME" elementType="Argument">
+            <stringProp name="Argument.name">TEST_NAME</stringProp>
+            <stringProp name="Argument.value">itemOversell</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="TEST_DATE" elementType="Argument">
+            <stringProp name="Argument.name">TEST_DATE</stringProp>
+            <stringProp name="Argument.value">${__time(yyyyMMdd,)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="TEST_TS" elementType="Argument">
+            <stringProp name="Argument.name">TEST_TS</stringProp>
+            <stringProp name="Argument.value">${__time(yyyyMMdd_HHmmss,)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="RUN_DIR" elementType="Argument">
+            <stringProp name="Argument.name">RUN_DIR</stringProp>
+            <stringProp name="Argument.value">${TEST_BASE}/${TEST_DATE}_${TEST_NAME}/${TEST_TS}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+        </collectionProp>
+      </Arguments>
+      <hashTree/>
+      <SetupThreadGroup guiclass="ThreadGroupGui" testclass="SetupThreadGroup" testname="setUp-自动创建目录" enabled="true">
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">1</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </SetupThreadGroup>
+      <hashTree>
+        <DebugSampler guiclass="TestBeanGUI" testclass="DebugSampler" testname="创建测试目录" enabled="true">
+          <boolProp name="calculateJMeterVariables">false</boolProp>
+          <boolProp name="displayJMeterProperties">false</boolProp>
+          <boolProp name="displayJMeterVariables">true</boolProp>
+          <boolProp name="displaySystemProperties">false</boolProp>
+        </DebugSampler>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="JSR223 预处理程序" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">// 重置性能统计
+props.remove(&quot;PERF_TOTAL_REQ&quot;);
+props.remove(&quot;PERF_SUCCESS&quot;);
+props.remove(&quot;PERF_ERROR&quot;);
+props.remove(&quot;PERF_TOTAL_BYTES&quot;);
+props.remove(&quot;PERF_TOTAL_SENT&quot;);
+props.remove(&quot;PERF_TOTAL_TIME&quot;);
+props.remove(&quot;PERF_MIN_TIME&quot;);
+props.remove(&quot;PERF_MAX_TIME&quot;);
+props.remove(&quot;PERF_START_TS&quot;);
+props.remove(&quot;PERF_END_TS&quot;);
+// 设置全局变量供 tearDown 使用
+props.put(&quot;TEST_TS&quot;, vars.get(&quot;TEST_TS&quot;));
+props.put(&quot;TEST_DATE&quot;, vars.get(&quot;TEST_DATE&quot;));
+props.put(&quot;TEST_BASE&quot;, vars.get(&quot;TEST_BASE&quot;));
+log.info(&quot;==== setUp: PERF stats reset, TEST_TS=&quot; + props.get(&quot;TEST_TS&quot;));</stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="秒杀商品超卖测试组" enabled="false">
+        <intProp name="ThreadGroup.num_threads">1000</intProp>
+        <intProp name="ThreadGroup.ramp_time">0</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <SyncTimer guiclass="TestBeanGUI" testclass="SyncTimer" testname="同步定时器" enabled="true">
+          <intProp name="groupSize">1000</intProp>
+          <longProp name="timeoutInMs">5000</longProp>
+        </SyncTimer>
+        <hashTree/>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP请求" enabled="true">
+          <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+          <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.path">/seckill/${ITEM_ID}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="couponId" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${COUPON_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">couponId</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="设置超卖测试目录" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">if (vars.get(&quot;__OVERSELL_INIT&quot;) != null) return;
+vars.put(&quot;__OVERSELL_INIT&quot;, &quot;1&quot;);
+String testName = &quot;itemOversell&quot;;
+String base = vars.get(&quot;TEST_BASE&quot;);
+String date = vars.get(&quot;TEST_DATE&quot;);
+String ts = vars.get(&quot;TEST_TS&quot;);
+String runDir = base + &quot;/&quot; + date + &quot;_&quot; + testName + &quot;/&quot; + ts;
+props.put(&quot;RUN_DIR&quot;, runDir);
+props.put(&quot;TEST_NAME&quot;, testName);
+vars.put(&quot;RUN_DIR&quot;, runDir);
+vars.put(&quot;TEST_NAME&quot;, testName);
+props.remove(&quot;PERF_TOTAL_REQ&quot;);
+props.remove(&quot;PERF_SUCCESS&quot;);
+props.remove(&quot;PERF_ERROR&quot;);
+props.remove(&quot;PERF_TOTAL_BYTES&quot;);
+props.remove(&quot;PERF_TOTAL_SENT&quot;);
+props.remove(&quot;PERF_TOTAL_TIME&quot;);
+props.remove(&quot;PERF_MIN_TIME&quot;);
+props.remove(&quot;PERF_MAX_TIME&quot;);
+props.remove(&quot;PERF_START_TS&quot;);
+props.remove(&quot;PERF_END_TS&quot;);
+File f = new File(runDir);
+if (!f.exists()) f.mkdirs();
+log.info(&quot;==== itemOversell RUN_DIR=&quot; + runDir);</stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP信息头管理器" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">authorization</stringProp>
+                <stringProp name="Header.value">${token}</stringProp>
+              </elementProp>
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="结果保存" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+
+String res = prev.getResponseDataAsString();
+String code = &quot;parse_fail&quot;;
+int codeStart = res.indexOf(&quot;\&quot;code\&quot;:&quot;);
+if (codeStart &gt;= 0) {
+    int s = res.indexOf(&quot;:&quot;, codeStart) + 1;
+    int e = res.indexOf(&quot;,&quot;, s);
+    if (e &lt; 0) e = res.indexOf(&quot;}&quot;, s);
+    code = res.substring(s, e).trim();
+}
+
+String user = vars.get(&quot;username&quot;);
+String runDir = props.get(&quot;RUN_DIR&quot;);
+String ts = props.get(&quot;TEST_TS&quot;);
+if (runDir == null) runDir = vars.get(&quot;TEST_BASE&quot;) + &quot;/&quot; + vars.get(&quot;TEST_DATE&quot;) + &quot;_&quot; + vars.get(&quot;TEST_NAME&quot;) + &quot;/&quot; + ts;
+new File(runDir).mkdirs();
+String csvPath = runDir + &quot;/itemOversell_detail_&quot; + ts + &quot;.csv&quot;;
+
+synchronized (csvPath.intern()) {
+    File f = new File(csvPath);
+    boolean needHeader = !f.exists();
+    PrintWriter pw = null;
+    try {
+        pw = new PrintWriter(new FileWriter(csvPath, true));
+        if (needHeader) {
+            pw.println(&quot;username,code,response,elapsed,connect,latency,bytes,sentBytes,success&quot;);
+        }
+        String safeRes = res.replace(&quot;\n&quot;, &quot;&quot;).replace(&quot;\r&quot;, &quot;&quot;);
+        long elapsed = prev.getTime();
+        long connect = prev.getConnectTime();
+        long latency = prev.getLatency();
+        long bytes = prev.getBytesAsLong();
+        int sent = prev.getSentBytes();
+        boolean succ = prev.isSuccessful();
+        pw.println(user + &quot;,&quot; + code + &quot;,&quot; + safeRes + &quot;,&quot; + elapsed + &quot;,&quot; + connect + &quot;,&quot; + latency + &quot;,&quot; + bytes + &quot;,&quot; + sent + &quot;,&quot; + succ);
+    } finally {
+        if (pw != null) pw.close();
+    }
+}
+// 全局累加性能统计
+synchronized (&quot;PERF_STATS&quot;) {
+    Long totalReq = (Long) props.get(&quot;PERF_TOTAL_REQ&quot;);
+    if (totalReq == null) totalReq = 0L;
+    props.put(&quot;PERF_TOTAL_REQ&quot;, totalReq + 1);
+
+    if (prev.isSuccessful()) {
+        Long succ = (Long) props.get(&quot;PERF_SUCCESS&quot;);
+        if (succ == null) succ = 0L;
+        props.put(&quot;PERF_SUCCESS&quot;, succ + 1);
+    } else {
+        Long err = (Long) props.get(&quot;PERF_ERROR&quot;);
+        if (err == null) err = 0L;
+        props.put(&quot;PERF_ERROR&quot;, err + 1);
+    }
+
+    Long totalBytes = (Long) props.get(&quot;PERF_TOTAL_BYTES&quot;);
+    if (totalBytes == null) totalBytes = 0L;
+    props.put(&quot;PERF_TOTAL_BYTES&quot;, totalBytes + prev.getBytesAsLong());
+
+    Long totalSent = (Long) props.get(&quot;PERF_TOTAL_SENT&quot;);
+    if (totalSent == null) totalSent = 0L;
+    props.put(&quot;PERF_TOTAL_SENT&quot;, totalSent + prev.getSentBytes());
+
+    Long totalTime = (Long) props.get(&quot;PERF_TOTAL_TIME&quot;);
+    if (totalTime == null) totalTime = 0L;
+    props.put(&quot;PERF_TOTAL_TIME&quot;, totalTime + prev.getTime());
+
+    Long minTime = (Long) props.get(&quot;PERF_MIN_TIME&quot;);
+    Long maxTime = (Long) props.get(&quot;PERF_MAX_TIME&quot;);
+    if (minTime == null || prev.getTime() &lt; minTime) props.put(&quot;PERF_MIN_TIME&quot;, (long) prev.getTime());
+    if (maxTime == null || prev.getTime() &gt; maxTime) props.put(&quot;PERF_MAX_TIME&quot;, (long) prev.getTime());
+
+    long sampleStart = prev.getStartTime();
+    long sampleEnd = prev.getEndTime();
+    Long startTs = (Long) props.get(&quot;PERF_START_TS&quot;);
+    if (startTs == null || sampleStart &lt; startTs) props.put(&quot;PERF_START_TS&quot;, sampleStart);
+    Long endTs = (Long) props.get(&quot;PERF_END_TS&quot;);
+    if (endTs == null || sampleEnd &gt; endTs) props.put(&quot;PERF_END_TS&quot;, sampleEnd);
+}</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="查看结果树" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="聚合报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="SimpleDataWriter" testclass="ResultCollector" testname="结果文件保存(.jtl)" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>true</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>true</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename">${TEST_BASE}/${TEST_DATE}_itemOversell/${TEST_TS}/result_itemOversell_${TEST_TS}.jtl</stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="秒杀商品一人一单组" enabled="false">
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">0</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <stringProp name="LoopController.loops">10</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP请求-一人一单" enabled="true">
+          <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+          <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.path">/seckill/${ITEM_ID}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="couponId" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${COUPON_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">couponId</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="设置一人一单测试目录" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">String testName = &quot;itemOneUser&quot;;
+String base = vars.get(&quot;TEST_BASE&quot;);
+String date = vars.get(&quot;TEST_DATE&quot;);
+String ts = vars.get(&quot;TEST_TS&quot;);
+String runDir = base + &quot;/&quot; + date + &quot;_&quot; + testName + &quot;/&quot; + ts;
+props.put(&quot;RUN_DIR&quot;, runDir);
+props.put(&quot;TEST_NAME&quot;, testName);
+vars.put(&quot;RUN_DIR&quot;, runDir);
+vars.put(&quot;TEST_NAME&quot;, testName);
+String savedToken = props.get(&quot;ONEUSER_TOKEN&quot;);
+if (savedToken == null) {
+    props.put(&quot;ONEUSER_TOKEN&quot;, vars.get(&quot;token&quot;));
+    props.put(&quot;ONEUSER_USERNAME&quot;, vars.get(&quot;username&quot;));
+    props.remove(&quot;PERF_TOTAL_REQ&quot;);
+    props.remove(&quot;PERF_SUCCESS&quot;);
+    props.remove(&quot;PERF_ERROR&quot;);
+    props.remove(&quot;PERF_TOTAL_BYTES&quot;);
+    props.remove(&quot;PERF_TOTAL_SENT&quot;);
+    props.remove(&quot;PERF_TOTAL_TIME&quot;);
+    props.remove(&quot;PERF_MIN_TIME&quot;);
+    props.remove(&quot;PERF_MAX_TIME&quot;);
+    props.remove(&quot;PERF_START_TS&quot;);
+    props.remove(&quot;PERF_END_TS&quot;);
+    File f = new File(runDir);
+    if (!f.exists()) f.mkdirs();
+    log.info(&quot;==== itemOneUser first RUN_DIR=&quot; + runDir + &quot; user=&quot; + vars.get(&quot;username&quot;));
+} else {
+    vars.put(&quot;token&quot;, savedToken);
+    vars.put(&quot;username&quot;, props.get(&quot;ONEUSER_USERNAME&quot;));
+    log.info(&quot;==== itemOneUser reuse user=&quot; + vars.get(&quot;username&quot;));
+}</stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP信息头管理器-一人一单" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">authorization</stringProp>
+                <stringProp name="Header.value">${token}</stringProp>
+              </elementProp>
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="结果保存-一人一单" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+
+String res = prev.getResponseDataAsString();
+String code = &quot;parse_fail&quot;;
+int codeStart = res.indexOf(&quot;\&quot;code\&quot;:&quot;);
+if (codeStart &gt;= 0) {
+    int s = res.indexOf(&quot;:&quot;, codeStart) + 1;
+    int e = res.indexOf(&quot;,&quot;, s);
+    if (e &lt; 0) e = res.indexOf(&quot;}&quot;, s);
+    code = res.substring(s, e).trim();
+}
+
+String user = vars.get(&quot;username&quot;);
+String runDir = props.get(&quot;RUN_DIR&quot;);
+String ts = props.get(&quot;TEST_TS&quot;);
+if (ts == null) ts = vars.get(&quot;TEST_TS&quot;);
+new File(runDir).mkdirs();
+String csvPath = runDir + &quot;/itemOneUser_detail_&quot; + ts + &quot;.csv&quot;;
+
+synchronized (csvPath) {
+    File f = new File(csvPath);
+    boolean needHeader = !f.exists();
+    PrintWriter pw = null;
+    try {
+        pw = new PrintWriter(new FileWriter(csvPath, true));
+        if (needHeader) {
+            pw.println(&quot;username,iter,code,response&quot;);
+        }
+        String safeRes = res.replace(&quot;\n&quot;, &quot;&quot;).replace(&quot;\r&quot;, &quot;&quot;);
+        String iter = vars.get(&quot;__jm__HTTP请求-一人一单__idx&quot;);
+        if (iter == null) iter = &quot;&quot;;
+        pw.println(user + &quot;,&quot; + iter + &quot;,&quot; + code + &quot;,&quot; + safeRes);
+    } finally {
+        if (pw != null) pw.close();
+    }
+}
+// 全局累加性能统计
+synchronized (&quot;PERF_STATS&quot;) {
+    Long totalReq = (Long) props.get(&quot;PERF_TOTAL_REQ&quot;);
+    if (totalReq == null) totalReq = 0L;
+    props.put(&quot;PERF_TOTAL_REQ&quot;, totalReq + 1);
+    if (prev.isSuccessful()) {
+        Long succ = (Long) props.get(&quot;PERF_SUCCESS&quot;);
+        if (succ == null) succ = 0L;
+        props.put(&quot;PERF_SUCCESS&quot;, succ + 1);
+    } else {
+        Long err = (Long) props.get(&quot;PERF_ERROR&quot;);
+        if (err == null) err = 0L;
+        props.put(&quot;PERF_ERROR&quot;, err + 1);
+    }
+    Long totalBytes = (Long) props.get(&quot;PERF_TOTAL_BYTES&quot;);
+    if (totalBytes == null) totalBytes = 0L;
+    props.put(&quot;PERF_TOTAL_BYTES&quot;, totalBytes + prev.getBytesAsLong());
+    Long totalSent = (Long) props.get(&quot;PERF_TOTAL_SENT&quot;);
+    if (totalSent == null) totalSent = 0L;
+    props.put(&quot;PERF_TOTAL_SENT&quot;, totalSent + prev.getSentBytes());
+    Long totalTime = (Long) props.get(&quot;PERF_TOTAL_TIME&quot;);
+    if (totalTime == null) totalTime = 0L;
+    props.put(&quot;PERF_TOTAL_TIME&quot;, totalTime + prev.getTime());
+    Long minTime = (Long) props.get(&quot;PERF_MIN_TIME&quot;);
+    Long maxTime = (Long) props.get(&quot;PERF_MAX_TIME&quot;);
+    if (minTime == null || prev.getTime() &lt; minTime) props.put(&quot;PERF_MIN_TIME&quot;, (long) prev.getTime());
+    if (maxTime == null || prev.getTime() &gt; maxTime) props.put(&quot;PERF_MAX_TIME&quot;, (long) prev.getTime());
+    long sampleStart = prev.getStartTime();
+    long sampleEnd = prev.getEndTime();
+    Long startTs = (Long) props.get(&quot;PERF_START_TS&quot;);
+    if (startTs == null || sampleStart &lt; startTs) props.put(&quot;PERF_START_TS&quot;, sampleStart);
+    Long endTs = (Long) props.get(&quot;PERF_END_TS&quot;);
+    if (endTs == null || sampleEnd &gt; endTs) props.put(&quot;PERF_END_TS&quot;, sampleEnd);
+}</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="查看结果树-一人一单" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="SimpleDataWriter" testclass="ResultCollector" testname="结果文件保存-一人一单(.jtl)" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>true</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>true</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename">${TEST_BASE}/${TEST_DATE}_itemOneUser/${TEST_TS}/result_itemOneUser_${TEST_TS}.jtl</stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="聚合报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="秒杀商品一人多单组">
+        <intProp name="ThreadGroup.num_threads">10</intProp>
+        <intProp name="ThreadGroup.ramp_time">0</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <stringProp name="LoopController.loops">20</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP请求-一人多单" enabled="true">
+          <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+          <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.path">/seckill/${ITEM_ID}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="couponId" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${COUPON_ID}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                <stringProp name="Argument.name">couponId</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="设置multiuser测试目录" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">String testName = &quot;itemMultiUser&quot;;
+String base = vars.get(&quot;TEST_BASE&quot;);
+String date = vars.get(&quot;TEST_DATE&quot;);
+String ts = vars.get(&quot;TEST_TS&quot;);
+String runDir = base + &quot;/&quot; + date + &quot;_&quot; + testName + &quot;/&quot; + ts;
+props.put(&quot;RUN_DIR&quot;, runDir);
+props.put(&quot;TEST_NAME&quot;, testName);
+vars.put(&quot;RUN_DIR&quot;, runDir);
+vars.put(&quot;TEST_NAME&quot;, testName);
+String savedToken = vars.get(&quot;MULTIUSER_TOKEN&quot;);
+if (savedToken == null) {
+    vars.put(&quot;MULTIUSER_TOKEN&quot;, vars.get(&quot;token&quot;));
+    vars.put(&quot;MULTIUSER_USERNAME&quot;, vars.get(&quot;username&quot;));
+    if (props.get(&quot;MULTIUSER_PERF_RESET&quot;) == null) {
+        props.put(&quot;MULTIUSER_PERF_RESET&quot;, &quot;1&quot;);
+        props.remove(&quot;PERF_TOTAL_REQ&quot;);
+        props.remove(&quot;PERF_SUCCESS&quot;);
+        props.remove(&quot;PERF_ERROR&quot;);
+        props.remove(&quot;PERF_TOTAL_BYTES&quot;);
+        props.remove(&quot;PERF_TOTAL_SENT&quot;);
+        props.remove(&quot;PERF_TOTAL_TIME&quot;);
+        props.remove(&quot;PERF_MIN_TIME&quot;);
+        props.remove(&quot;PERF_MAX_TIME&quot;);
+        props.remove(&quot;PERF_START_TS&quot;);
+        props.remove(&quot;PERF_END_TS&quot;);
+        File f = new File(runDir);
+        if (!f.exists()) f.mkdirs();
+    }
+    log.info(&quot;==== itemMultiUser thread first user=&quot; + vars.get(&quot;username&quot;));
+} else {
+    vars.put(&quot;token&quot;, savedToken);
+    vars.put(&quot;username&quot;, vars.get(&quot;MULTIUSER_USERNAME&quot;));
+    log.info(&quot;==== itemMultiUser reuse user=&quot; + vars.get(&quot;username&quot;));
+}</stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP信息头管理器-一人多单" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">authorization</stringProp>
+                <stringProp name="Header.value">${token}</stringProp>
+              </elementProp>
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="结果保存-一人多单" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+
+String res = prev.getResponseDataAsString();
+String code = &quot;parse_fail&quot;;
+int codeStart = res.indexOf(&quot;\&quot;code\&quot;:&quot;);
+if (codeStart &gt;= 0) {
+    int s = res.indexOf(&quot;:&quot;, codeStart) + 1;
+    int e = res.indexOf(&quot;,&quot;, s);
+    if (e &lt; 0) e = res.indexOf(&quot;}&quot;, s);
+    code = res.substring(s, e).trim();
+}
+
+String user = vars.get(&quot;username&quot;);
+String runDir = props.get(&quot;RUN_DIR&quot;);
+String ts = props.get(&quot;TEST_TS&quot;);
+if (ts == null) ts = vars.get(&quot;TEST_TS&quot;);
+new File(runDir).mkdirs();
+String csvPath = runDir + &quot;/itemMultiUser_detail_&quot; + ts + &quot;.csv&quot;;
+
+synchronized (csvPath) {
+    File f = new File(csvPath);
+    boolean needHeader = !f.exists();
+    PrintWriter pw = null;
+    try {
+        pw = new PrintWriter(new FileWriter(csvPath, true));
+        if (needHeader) {
+            pw.println(&quot;username,iter,code,response&quot;);
+        }
+        String safeRes = res.replace(&quot;\n&quot;, &quot;&quot;).replace(&quot;\r&quot;, &quot;&quot;);
+        String iter = vars.get(&quot;__jm__HTTP请求-一人多单__idx&quot;);
+        if (iter == null) iter = &quot;&quot;;
+        pw.println(user + &quot;,&quot; + iter + &quot;,&quot; + code + &quot;,&quot; + safeRes);
+    } finally {
+        if (pw != null) pw.close();
+    }
+}
+// 全局累加性能统计
+synchronized (&quot;PERF_STATS&quot;) {
+    Long totalReq = (Long) props.get(&quot;PERF_TOTAL_REQ&quot;);
+    if (totalReq == null) totalReq = 0L;
+    props.put(&quot;PERF_TOTAL_REQ&quot;, totalReq + 1);
+    if (prev.isSuccessful()) {
+        Long succ = (Long) props.get(&quot;PERF_SUCCESS&quot;);
+        if (succ == null) succ = 0L;
+        props.put(&quot;PERF_SUCCESS&quot;, succ + 1);
+    } else {
+        Long err = (Long) props.get(&quot;PERF_ERROR&quot;);
+        if (err == null) err = 0L;
+        props.put(&quot;PERF_ERROR&quot;, err + 1);
+    }
+    Long totalBytes = (Long) props.get(&quot;PERF_TOTAL_BYTES&quot;);
+    if (totalBytes == null) totalBytes = 0L;
+    props.put(&quot;PERF_TOTAL_BYTES&quot;, totalBytes + prev.getBytesAsLong());
+    Long totalSent = (Long) props.get(&quot;PERF_TOTAL_SENT&quot;);
+    if (totalSent == null) totalSent = 0L;
+    props.put(&quot;PERF_TOTAL_SENT&quot;, totalSent + prev.getSentBytes());
+    Long totalTime = (Long) props.get(&quot;PERF_TOTAL_TIME&quot;);
+    if (totalTime == null) totalTime = 0L;
+    props.put(&quot;PERF_TOTAL_TIME&quot;, totalTime + prev.getTime());
+    Long minTime = (Long) props.get(&quot;PERF_MIN_TIME&quot;);
+    Long maxTime = (Long) props.get(&quot;PERF_MAX_TIME&quot;);
+    if (minTime == null || prev.getTime() &lt; minTime) props.put(&quot;PERF_MIN_TIME&quot;, (long) prev.getTime());
+    if (maxTime == null || prev.getTime() &gt; maxTime) props.put(&quot;PERF_MAX_TIME&quot;, (long) prev.getTime());
+    long sampleStart = prev.getStartTime();
+    long sampleEnd = prev.getEndTime();
+    Long startTs = (Long) props.get(&quot;PERF_START_TS&quot;);
+    if (startTs == null || sampleStart &lt; startTs) props.put(&quot;PERF_START_TS&quot;, sampleStart);
+    Long endTs = (Long) props.get(&quot;PERF_END_TS&quot;);
+    if (endTs == null || sampleEnd &gt; endTs) props.put(&quot;PERF_END_TS&quot;, sampleEnd);
+}</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="SimpleDataWriter" testclass="ResultCollector" testname="结果文件保存-一人多单(.jtl)" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>true</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>true</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename">${TEST_BASE}/${TEST_DATE}_itemMultiUser/${TEST_TS}/result_itemMultiUser_${TEST_TS}.jtl</stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="查看结果树">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="聚合报告">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="秒杀优惠券一人一单组" enabled="false">
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">0</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <stringProp name="LoopController.loops">10</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP请求-优惠券一人一单" enabled="true">
+          <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+          <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.path">/seckill/coupon/${COUPON_ID}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="设置coupon_oneuser测试目录" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">String testName = &quot;couponOneUser&quot;;
+String base = vars.get(&quot;TEST_BASE&quot;);
+String date = vars.get(&quot;TEST_DATE&quot;);
+String ts = vars.get(&quot;TEST_TS&quot;);
+String runDir = base + &quot;/&quot; + date + &quot;_&quot; + testName + &quot;/&quot; + ts;
+props.put(&quot;RUN_DIR&quot;, runDir);
+props.put(&quot;TEST_NAME&quot;, testName);
+vars.put(&quot;RUN_DIR&quot;, runDir);
+vars.put(&quot;TEST_NAME&quot;, testName);
+String savedToken = props.get(&quot;COUPON_ONEUSER_TOKEN&quot;);
+if (savedToken == null) {
+    props.put(&quot;COUPON_ONEUSER_TOKEN&quot;, vars.get(&quot;token&quot;));
+    props.put(&quot;COUPON_ONEUSER_USERNAME&quot;, vars.get(&quot;username&quot;));
+    props.remove(&quot;PERF_TOTAL_REQ&quot;);
+    props.remove(&quot;PERF_SUCCESS&quot;);
+    props.remove(&quot;PERF_ERROR&quot;);
+    props.remove(&quot;PERF_TOTAL_BYTES&quot;);
+    props.remove(&quot;PERF_TOTAL_SENT&quot;);
+    props.remove(&quot;PERF_TOTAL_TIME&quot;);
+    props.remove(&quot;PERF_MIN_TIME&quot;);
+    props.remove(&quot;PERF_MAX_TIME&quot;);
+    props.remove(&quot;PERF_START_TS&quot;);
+    props.remove(&quot;PERF_END_TS&quot;);
+    File f = new File(runDir);
+    if (!f.exists()) f.mkdirs();
+    log.info(&quot;==== couponOneUser first RUN_DIR=&quot; + runDir + &quot; user=&quot; + vars.get(&quot;username&quot;));
+} else {
+    vars.put(&quot;token&quot;, savedToken);
+    vars.put(&quot;username&quot;, props.get(&quot;COUPON_ONEUSER_USERNAME&quot;));
+    log.info(&quot;==== couponOneUser reuse user=&quot; + vars.get(&quot;username&quot;));
+}</stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP信息头管理器-优惠券一人一单" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">authorization</stringProp>
+                <stringProp name="Header.value">${token}</stringProp>
+              </elementProp>
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="结果保存-优惠券一人一单" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+
+String res = prev.getResponseDataAsString();
+String code = &quot;parse_fail&quot;;
+int codeStart = res.indexOf(&quot;\&quot;code\&quot;:&quot;);
+if (codeStart &gt;= 0) {
+    int s = res.indexOf(&quot;:&quot;, codeStart) + 1;
+    int e = res.indexOf(&quot;,&quot;, s);
+    if (e &lt; 0) e = res.indexOf(&quot;}&quot;, s);
+    code = res.substring(s, e).trim();
+}
+
+String user = vars.get(&quot;username&quot;);
+String runDir = props.get(&quot;RUN_DIR&quot;);
+String ts = props.get(&quot;TEST_TS&quot;);
+if (ts == null) ts = vars.get(&quot;TEST_TS&quot;);
+new File(runDir).mkdirs();
+String csvPath = runDir + &quot;/couponOneUser_detail_&quot; + ts + &quot;.csv&quot;;
+
+synchronized (csvPath) {
+    File f = new File(csvPath);
+    boolean needHeader = !f.exists();
+    PrintWriter pw = null;
+    try {
+        pw = new PrintWriter(new FileWriter(csvPath, true));
+        if (needHeader) {
+            pw.println(&quot;username,iter,code,response&quot;);
+        }
+        String safeRes = res.replace(&quot;\n&quot;, &quot;&quot;).replace(&quot;\r&quot;, &quot;&quot;);
+        String iter = vars.get(&quot;__jm__HTTP请求-优惠券一人一单__idx&quot;);
+        if (iter == null) iter = &quot;&quot;;
+        pw.println(user + &quot;,&quot; + iter + &quot;,&quot; + code + &quot;,&quot; + safeRes);
+    } finally {
+        if (pw != null) pw.close();
+    }
+}
+// 全局累加性能统计
+synchronized (&quot;PERF_STATS&quot;) {
+    Long totalReq = (Long) props.get(&quot;PERF_TOTAL_REQ&quot;);
+    if (totalReq == null) totalReq = 0L;
+    props.put(&quot;PERF_TOTAL_REQ&quot;, totalReq + 1);
+    if (prev.isSuccessful()) {
+        Long succ = (Long) props.get(&quot;PERF_SUCCESS&quot;);
+        if (succ == null) succ = 0L;
+        props.put(&quot;PERF_SUCCESS&quot;, succ + 1);
+    } else {
+        Long err = (Long) props.get(&quot;PERF_ERROR&quot;);
+        if (err == null) err = 0L;
+        props.put(&quot;PERF_ERROR&quot;, err + 1);
+    }
+    Long totalBytes = (Long) props.get(&quot;PERF_TOTAL_BYTES&quot;);
+    if (totalBytes == null) totalBytes = 0L;
+    props.put(&quot;PERF_TOTAL_BYTES&quot;, totalBytes + prev.getBytesAsLong());
+    Long totalSent = (Long) props.get(&quot;PERF_TOTAL_SENT&quot;);
+    if (totalSent == null) totalSent = 0L;
+    props.put(&quot;PERF_TOTAL_SENT&quot;, totalSent + prev.getSentBytes());
+    Long totalTime = (Long) props.get(&quot;PERF_TOTAL_TIME&quot;);
+    if (totalTime == null) totalTime = 0L;
+    props.put(&quot;PERF_TOTAL_TIME&quot;, totalTime + prev.getTime());
+    Long minTime = (Long) props.get(&quot;PERF_MIN_TIME&quot;);
+    Long maxTime = (Long) props.get(&quot;PERF_MAX_TIME&quot;);
+    if (minTime == null || prev.getTime() &lt; minTime) props.put(&quot;PERF_MIN_TIME&quot;, (long) prev.getTime());
+    if (maxTime == null || prev.getTime() &gt; maxTime) props.put(&quot;PERF_MAX_TIME&quot;, (long) prev.getTime());
+    long sampleStart = prev.getStartTime();
+    long sampleEnd = prev.getEndTime();
+    Long startTs = (Long) props.get(&quot;PERF_START_TS&quot;);
+    if (startTs == null || sampleStart &lt; startTs) props.put(&quot;PERF_START_TS&quot;, sampleStart);
+    Long endTs = (Long) props.get(&quot;PERF_END_TS&quot;);
+    if (endTs == null || sampleEnd &gt; endTs) props.put(&quot;PERF_END_TS&quot;, sampleEnd);
+}</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="SimpleDataWriter" testclass="ResultCollector" testname="结果文件保存-优惠券一人一单(.jtl)" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>true</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>true</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename">${TEST_BASE}/${TEST_DATE}_couponOneUser/${TEST_TS}/result_couponOneUser_${TEST_TS}.jtl</stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="查看结果树" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="聚合报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="秒杀优惠券超卖组" enabled="false">
+        <intProp name="ThreadGroup.num_threads">1000</intProp>
+        <intProp name="ThreadGroup.ramp_time">0</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <SyncTimer guiclass="TestBeanGUI" testclass="SyncTimer" testname="同步定时器" enabled="true">
+          <intProp name="groupSize">1000</intProp>
+          <longProp name="timeoutInMs">5000</longProp>
+        </SyncTimer>
+        <hashTree/>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP请求-优惠券超卖" enabled="true">
+          <stringProp name="HTTPSampler.domain">${HOST}</stringProp>
+          <stringProp name="HTTPSampler.port">${PORT}</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.path">/seckill/coupon/${COUPON_ID}</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量">
+            <collectionProp name="Arguments.arguments"/>
+          </elementProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="设置coupon_oversell测试目录" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">if (vars.get(&quot;__COUPON_OVERSELL_INIT&quot;) != null) return;
+vars.put(&quot;__COUPON_OVERSELL_INIT&quot;, &quot;1&quot;);
+String testName = &quot;couponOversell&quot;;
+String base = vars.get(&quot;TEST_BASE&quot;);
+String date = vars.get(&quot;TEST_DATE&quot;);
+String ts = vars.get(&quot;TEST_TS&quot;);
+String runDir = base + &quot;/&quot; + date + &quot;_&quot; + testName + &quot;/&quot; + ts;
+props.put(&quot;RUN_DIR&quot;, runDir);
+props.put(&quot;TEST_NAME&quot;, testName);
+vars.put(&quot;RUN_DIR&quot;, runDir);
+vars.put(&quot;TEST_NAME&quot;, testName);
+props.remove(&quot;PERF_TOTAL_REQ&quot;);
+props.remove(&quot;PERF_SUCCESS&quot;);
+props.remove(&quot;PERF_ERROR&quot;);
+props.remove(&quot;PERF_TOTAL_BYTES&quot;);
+props.remove(&quot;PERF_TOTAL_SENT&quot;);
+props.remove(&quot;PERF_TOTAL_TIME&quot;);
+props.remove(&quot;PERF_MIN_TIME&quot;);
+props.remove(&quot;PERF_MAX_TIME&quot;);
+props.remove(&quot;PERF_START_TS&quot;);
+props.remove(&quot;PERF_END_TS&quot;);
+File f = new File(runDir);
+if (!f.exists()) f.mkdirs();
+log.info(&quot;==== coupon_oversell RUN_DIR=&quot; + runDir);</stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP信息头管理器-优惠券超卖" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">authorization</stringProp>
+                <stringProp name="Header.value">${token}</stringProp>
+              </elementProp>
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="结果保存-优惠券超卖" enabled="true">
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="script">import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+
+String res = prev.getResponseDataAsString();
+String code = &quot;parse_fail&quot;;
+int codeStart = res.indexOf(&quot;\&quot;code\&quot;:&quot;);
+if (codeStart &gt;= 0) {
+    int s = res.indexOf(&quot;:&quot;, codeStart) + 1;
+    int e = res.indexOf(&quot;,&quot;, s);
+    if (e &lt; 0) e = res.indexOf(&quot;}&quot;, s);
+    code = res.substring(s, e).trim();
+}
+
+String user = vars.get(&quot;username&quot;);
+String runDir = props.get(&quot;RUN_DIR&quot;);
+String ts = props.get(&quot;TEST_TS&quot;);
+if (runDir == null) runDir = vars.get(&quot;TEST_BASE&quot;) + &quot;/&quot; + vars.get(&quot;TEST_DATE&quot;) + &quot;_&quot; + vars.get(&quot;TEST_NAME&quot;) + &quot;/&quot; + ts;
+new File(runDir).mkdirs();
+String csvPath = runDir + &quot;/couponOversell_detail_&quot; + ts + &quot;.csv&quot;;
+
+synchronized (csvPath.intern()) {
+    File f = new File(csvPath);
+    boolean needHeader = !f.exists();
+    PrintWriter pw = null;
+    try {
+        pw = new PrintWriter(new FileWriter(csvPath, true));
+        if (needHeader) {
+            pw.println(&quot;username,code,response,elapsed,connect,latency,bytes,sentBytes,success&quot;);
+        }
+        String safeRes = res.replace(&quot;\n&quot;, &quot;&quot;).replace(&quot;\r&quot;, &quot;&quot;);
+        long elapsed = prev.getTime();
+        long connect = prev.getConnectTime();
+        long latency = prev.getLatency();
+        long bytes = prev.getBytesAsLong();
+        int sent = prev.getSentBytes();
+        boolean succ = prev.isSuccessful();
+        pw.println(user + &quot;,&quot; + code + &quot;,&quot; + safeRes + &quot;,&quot; + elapsed + &quot;,&quot; + connect + &quot;,&quot; + latency + &quot;,&quot; + bytes + &quot;,&quot; + sent + &quot;,&quot; + succ);
+    } finally {
+        if (pw != null) pw.close();
+    }
+}
+// 全局累加性能统计
+synchronized (&quot;PERF_STATS&quot;) {
+    Long totalReq = (Long) props.get(&quot;PERF_TOTAL_REQ&quot;);
+    if (totalReq == null) totalReq = 0L;
+    props.put(&quot;PERF_TOTAL_REQ&quot;, totalReq + 1);
+    if (prev.isSuccessful()) {
+        Long succ = (Long) props.get(&quot;PERF_SUCCESS&quot;);
+        if (succ == null) succ = 0L;
+        props.put(&quot;PERF_SUCCESS&quot;, succ + 1);
+    } else {
+        Long err = (Long) props.get(&quot;PERF_ERROR&quot;);
+        if (err == null) err = 0L;
+        props.put(&quot;PERF_ERROR&quot;, err + 1);
+    }
+    Long totalBytes = (Long) props.get(&quot;PERF_TOTAL_BYTES&quot;);
+    if (totalBytes == null) totalBytes = 0L;
+    props.put(&quot;PERF_TOTAL_BYTES&quot;, totalBytes + prev.getBytesAsLong());
+    Long totalSent = (Long) props.get(&quot;PERF_TOTAL_SENT&quot;);
+    if (totalSent == null) totalSent = 0L;
+    props.put(&quot;PERF_TOTAL_SENT&quot;, totalSent + prev.getSentBytes());
+    Long totalTime = (Long) props.get(&quot;PERF_TOTAL_TIME&quot;);
+    if (totalTime == null) totalTime = 0L;
+    props.put(&quot;PERF_TOTAL_TIME&quot;, totalTime + prev.getTime());
+    Long minTime = (Long) props.get(&quot;PERF_MIN_TIME&quot;);
+    Long maxTime = (Long) props.get(&quot;PERF_MAX_TIME&quot;);
+    if (minTime == null || prev.getTime() &lt; minTime) props.put(&quot;PERF_MIN_TIME&quot;, (long) prev.getTime());
+    if (maxTime == null || prev.getTime() &gt; maxTime) props.put(&quot;PERF_MAX_TIME&quot;, (long) prev.getTime());
+    long sampleStart = prev.getStartTime();
+    long sampleEnd = prev.getEndTime();
+    Long startTs = (Long) props.get(&quot;PERF_START_TS&quot;);
+    if (startTs == null || sampleStart &lt; startTs) props.put(&quot;PERF_START_TS&quot;, sampleStart);
+    Long endTs = (Long) props.get(&quot;PERF_END_TS&quot;);
+    if (endTs == null || sampleEnd &gt; endTs) props.put(&quot;PERF_END_TS&quot;, sampleEnd);
+}</stringProp>
+          </JSR223PostProcessor>
+          <hashTree/>
+        </hashTree>
+        <ResultCollector guiclass="SimpleDataWriter" testclass="ResultCollector" testname="结果文件保存-优惠券超卖(.jtl)" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>true</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>true</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename">${TEST_BASE}/${TEST_DATE}_couponOversell/${TEST_TS}/result_couponOversell_${TEST_TS}.jtl</stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="聚合报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+        <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="查看结果树" enabled="true">
+          <boolProp name="ResultCollector.error_logging">false</boolProp>
+          <objProp>
+            <name>saveConfig</name>
+            <value class="SampleSaveConfiguration">
+              <time>true</time>
+              <latency>true</latency>
+              <timestamp>true</timestamp>
+              <success>true</success>
+              <label>true</label>
+              <code>true</code>
+              <message>true</message>
+              <threadName>true</threadName>
+              <dataType>true</dataType>
+              <encoding>false</encoding>
+              <assertions>true</assertions>
+              <subresults>true</subresults>
+              <responseData>false</responseData>
+              <samplerData>false</samplerData>
+              <xml>false</xml>
+              <fieldNames>true</fieldNames>
+              <responseHeaders>false</responseHeaders>
+              <requestHeaders>false</requestHeaders>
+              <responseDataOnError>false</responseDataOnError>
+              <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+              <assertionsResultsToSave>0</assertionsResultsToSave>
+              <bytes>true</bytes>
+              <sentBytes>true</sentBytes>
+              <url>true</url>
+              <threadCounts>true</threadCounts>
+              <idleTime>true</idleTime>
+              <connectTime>true</connectTime>
+            </value>
+          </objProp>
+          <stringProp name="filename"></stringProp>
+        </ResultCollector>
+        <hashTree/>
+      </hashTree>
+      <PostThreadGroup guiclass="ThreadGroupGui" testclass="PostThreadGroup" testname="tearDown-生成摘要" enabled="true">
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">1</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </PostThreadGroup>
+      <hashTree>
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="生成测试摘要" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="parameters"></stringProp>
+          <stringProp name="filename"></stringProp>
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="script">import java.io.*;
+
+String runDir = props.get(&quot;RUN_DIR&quot;);
+String ts = props.get(&quot;TEST_TS&quot;);
+if (runDir == null || ts == null) {
+    log.info(&quot;==== tearDown: RUN_DIR null, skip&quot;);
+    return;
+}
+
+String summaryPath = runDir + &quot;/summary.txt&quot;;
+String testName = props.get(&quot;TEST_NAME&quot;);
+if (testName == null) testName = &quot;itemOversell&quot;;
+
+String csvPrefix;
+int codeFieldIndex;
+boolean isIterFormat;
+if (testName.equals(&quot;itemOneUser&quot;)) {
+    csvPrefix = &quot;itemOneUser_detail_&quot;; isIterFormat = true; codeFieldIndex = 2;
+} else if (testName.equals(&quot;itemMultiUser&quot;)) {
+    csvPrefix = &quot;itemMultiUser_detail_&quot;; isIterFormat = true; codeFieldIndex = 2;
+} else if (testName.equals(&quot;couponOneUser&quot;)) {
+    csvPrefix = &quot;couponOneUser_detail_&quot;; isIterFormat = true; codeFieldIndex = 2;
+} else if (testName.equals(&quot;couponOversell&quot;)) {
+    csvPrefix = &quot;couponOversell_detail_&quot;; isIterFormat = false; codeFieldIndex = 1;
+} else {
+    csvPrefix = &quot;itemOversell_detail_&quot;; isIterFormat = false; codeFieldIndex = 1;
+}
+
+int code0 = 0;
+int code1 = 0;
+int code2 = 0;
+int codeOther = 0;
+int total = 0;
+
+File csvFile = new File(runDir + &quot;/&quot; + csvPrefix + ts + &quot;.csv&quot;);
+if (!csvFile.exists()) {
+    log.info(&quot;==== tearDown: CSV not found: &quot; + csvFile);
+} else {
+    BufferedReader br = new BufferedReader(new FileReader(csvFile));
+    String line;
+    while ((line = br.readLine()) != null) {
+        if (line.startsWith(&quot;username,&quot;)) continue;
+        total++;
+        String[] parts = line.split(&quot;,&quot;, isIterFormat ? 4 : 3);
+        String codeField = parts.length &gt; codeFieldIndex ? parts[codeFieldIndex].trim() : &quot;&quot;;
+        if (codeField.equals(&quot;0&quot;)) code0++;
+        else if (codeField.equals(&quot;1&quot;)) code1++;
+        else if (codeField.equals(&quot;2&quot;)) code2++;
+        else codeOther++;
+    }
+    br.close();
+}
+
+Long totalReq = (Long) props.get(&quot;PERF_TOTAL_REQ&quot;);
+Long successCount = (Long) props.get(&quot;PERF_SUCCESS&quot;);
+Long perfError = (Long) props.get(&quot;PERF_ERROR&quot;);
+Long totalBytes = (Long) props.get(&quot;PERF_TOTAL_BYTES&quot;);
+Long totalSent = (Long) props.get(&quot;PERF_TOTAL_SENT&quot;);
+Long totalTime = (Long) props.get(&quot;PERF_TOTAL_TIME&quot;);
+Long minTime = (Long) props.get(&quot;PERF_MIN_TIME&quot;);
+Long maxTime = (Long) props.get(&quot;PERF_MAX_TIME&quot;);
+Long startTs = (Long) props.get(&quot;PERF_START_TS&quot;);
+Long endTs = (Long) props.get(&quot;PERF_END_TS&quot;);
+
+if (totalReq == null) totalReq = 0L;
+if (successCount == null) successCount = 0L;
+if (perfError == null) perfError = 0L;
+if (totalBytes == null) totalBytes = 0L;
+if (totalSent == null) totalSent = 0L;
+if (totalTime == null) totalTime = 0L;
+
+double errorRate = totalReq &gt; 0 ? (perfError * 100.0 / totalReq) : 0;
+double avgTime = totalReq &gt; 0 ? (totalTime * 1.0 / totalReq) : 0;
+long durationMs = (endTs != null &amp;&amp; startTs != null) ? (endTs - startTs) : 0;
+double durationSec = durationMs / 1000.0;
+double qps = durationSec &gt; 0 ? (totalReq / durationSec) : 0;
+double recvKBps = durationSec &gt; 0 ? (totalBytes / 1024.0 / durationSec) : 0;
+double sentKBps = durationSec &gt; 0 ? (totalSent / 1024.0 / durationSec) : 0;
+
+PrintWriter pw = new PrintWriter(new FileWriter(summaryPath));
+pw.println(&quot;========================================&quot;);
+pw.println(&quot;ZMall 测试结果摘要&quot;);
+pw.println(&quot;========================================&quot;);
+pw.println(&quot;测试时间: &quot; + ts);
+pw.println(&quot;测试类型: &quot; + props.get(&quot;TEST_NAME&quot;));
+pw.println(&quot;----------------------------------------&quot;);
+pw.println(&quot;一、系统性能指标&quot;);
+pw.println(&quot;----------------------------------------&quot;);
+pw.println(&quot;总请求数: &quot; + totalReq);
+pw.println(&quot;成功请求数: &quot; + successCount);
+pw.println(&quot;失败请求数: &quot; + perfError);
+pw.println(&quot;异常率: &quot; + String.format(&quot;%.2f%%&quot;, errorRate));
+pw.println(&quot;测试持续时间: &quot; + String.format(&quot;%.2f&quot;, durationSec) + &quot; 秒&quot;);
+pw.println(&quot;吞吐量(QPS): &quot; + String.format(&quot;%.2f&quot;, qps) + &quot; req/s&quot;);
+pw.println(&quot;平均响应时间: &quot; + String.format(&quot;%.2f&quot;, avgTime) + &quot; ms&quot;);
+pw.println(&quot;最小响应时间: &quot; + (minTime != null ? minTime : 0) + &quot; ms&quot;);
+pw.println(&quot;最大响应时间: &quot; + (maxTime != null ? maxTime : 0) + &quot; ms&quot;);
+pw.println(&quot;接收数据速率: &quot; + String.format(&quot;%.2f&quot;, recvKBps) + &quot; KB/sec&quot;);
+pw.println(&quot;发送数据速率: &quot; + String.format(&quot;%.2f&quot;, sentKBps) + &quot; KB/sec&quot;);
+double avgRecvBytes = totalReq &gt; 0 ? (totalBytes * 1.0 / totalReq) : 0;
+double avgSentBytes = totalReq &gt; 0 ? (totalSent * 1.0 / totalReq) : 0;
+pw.println(&quot;平均接收字节数: &quot; + String.format(&quot;%.2f&quot;, avgRecvBytes) + &quot; bytes&quot;);
+pw.println(&quot;平均发送字节数: &quot; + String.format(&quot;%.2f&quot;, avgSentBytes) + &quot; bytes&quot;);
+pw.println(&quot;----------------------------------------&quot;);
+pw.println(&quot;二、业务结果分布 (CSV记录)&quot;);
+pw.println(&quot;----------------------------------------&quot;);
+pw.println(&quot;总请求(CSV记录): &quot; + total);
+if (isIterFormat) {
+    pw.println(&quot;  code=0 (秒杀成功): &quot; + code0);
+    pw.println(&quot;  code=1 (库存不足): &quot; + code1);
+    pw.println(&quot;  code=2 (重复下单): &quot; + code2);
+    pw.println(&quot;  其他: &quot; + codeOther);
+} else {
+    pw.println(&quot;打到后端的请求数: &quot; + (code0 + code1 + code2));
+    pw.println(&quot;  code=0 (秒杀成功): &quot; + code0);
+    pw.println(&quot;  code=1 (库存不足): &quot; + code1);
+    pw.println(&quot;  code=2 (重复下单): &quot; + code2);
+    pw.println(&quot;被网关/网络拒绝的请求数: &quot; + codeOther);
+}
+pw.println(&quot;----------------------------------------&quot;);
+if (testName.equals(&quot;itemOneUser&quot;) || testName.equals(&quot;couponOneUser&quot;)) {
+    pw.println(&quot;三、验证项 (一人一单)&quot;);
+    pw.println(&quot;----------------------------------------&quot;);
+    pw.println(&quot;  1. code=0的数量应=1 (同一用户首次请求成功)&quot;);
+    pw.println(&quot;  2. code=2的数量应=总请求-1 (后续重复下单被拦截)&quot;);
+    pw.println(&quot;  3. 一人一单防护生效 (Redis Set 限购)&quot;);
+} else if (testName.equals(&quot;itemMultiUser&quot;)) {
+    pw.println(&quot;三、验证项 (一人多单)&quot;);
+    pw.println(&quot;----------------------------------------&quot;);
+    pw.println(&quot;  1. code=0的数量应=maxPerUser (同一用户多次下单成功)&quot;);
+    pw.println(&quot;  2. code=2的数量应=总请求-maxPerUser (超过限购被拦截)&quot;);
+    pw.println(&quot;  3. 一人多单验证 (商品 maxPerUser&gt;1)&quot;);
+} else if (testName.equals(&quot;couponOversell&quot;)) {
+    pw.println(&quot;三、验证项 (优惠券超卖)&quot;);
+    pw.println(&quot;----------------------------------------&quot;);
+    pw.println(&quot;  1. code=0的数量应=优惠券库存数 (无超卖)&quot;);
+    pw.println(&quot;  2. code=1表示库存防护生效&quot;);
+    pw.println(&quot;  3. 被拒绝请求数 = 总请求 - 打到后端请求&quot;);
+} else {
+    pw.println(&quot;三、验证项 (超卖测试)&quot;);
+    pw.println(&quot;----------------------------------------&quot;);
+    pw.println(&quot;  1. code=0的数量应=秒杀库存数 (无超卖)&quot;);
+    pw.println(&quot;  2. code=1表示库存防护生效&quot;);
+    pw.println(&quot;  3. code=2表示一人一单防护生效&quot;);
+    pw.println(&quot;  4. 被拒绝请求数 = 总请求 - 打到后端请求&quot;);
+}
+pw.println(&quot;========================================&quot;);
+pw.close();
+
+log.info(&quot;==== tearDown: summary written to &quot; + summaryPath);
+log.info(&quot;==== tearDown: total=&quot; + total + &quot; code0=&quot; + code0 + &quot; code1=&quot; + code1 + &quot; code2=&quot; + code2);
+log.info(&quot;==== tearDown: summary written to &quot; + summaryPath);
+</stringProp>
+        </JSR223Sampler>
+        <hashTree/>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

@@ -66,6 +66,10 @@ class BatchRegisterTest {
     private static final Path CSV_PATH =
             Paths.get("../../users_tokens.csv").toAbsolutePath().normalize();
 
+    /** JMeter 多轮测试分片：每片 40 个用户，共 3 片（r1/r2/r3） */
+    private static final int SPLIT_SIZE = 40;
+    private static final int SPLIT_COUNT = 3;
+
     // ==================== 测试方法 ====================
 
     /**
@@ -230,7 +234,7 @@ class BatchRegisterTest {
     }
 
     /**
-     * 写入 CSV 文件
+     * 写入 CSV 文件，并同步生成 JMeter 多轮测试分片（r1/r2/r3）
      */
     private void writeCsv(Path csvPath, List<String[]> lines) throws IOException {
         // 确保父目录存在
@@ -242,6 +246,48 @@ class BatchRegisterTest {
             }
         }
         System.out.println("[OK] CSV 已写入: " + csvPath);
+
+        // 同步生成分片文件（r1/r2/r3），供 JMeter 多轮测试使用
+        writeSplitCsvs(csvPath, lines);
+    }
+
+    /**
+     * 从主 CSV 拆分出 r1/r2/r3 三个分片文件，每片 SPLIT_SIZE 个用户
+     * <p>命名规则：users_tokens_r1.csv / users_tokens_r2.csv / users_tokens_r3.csv
+     * <p>分片范围（跳过表头）：
+     * <pre>
+     *   r1: 第 1~40 个用户（索引 1~40）
+     *   r2: 第 41~80 个用户（索引 41~80）
+     *   r3: 第 81~120 个用户（索引 81~120）
+     * </pre>
+     */
+    private void writeSplitCsvs(Path mainCsvPath, List<String[]> lines) throws IOException {
+        if (lines.size() < 2) {
+            System.out.println("[SKIP] 行数不足，跳过分片生成");
+            return;
+        }
+        String[] header = lines.get(0);
+        Path parent = mainCsvPath.getParent();
+
+        for (int i = 0; i < SPLIT_COUNT; i++) {
+            int from = 1 + i * SPLIT_SIZE;                       // 起始索引（含）
+            int to = Math.min(1 + (i + 1) * SPLIT_SIZE, lines.size()); // 结束索引（不含）
+            if (from >= lines.size()) {
+                System.out.printf("[SKIP] r%d 用户数不足（仅 %d 条），跳过\n",
+                        i + 1, lines.size() - 1);
+                continue;
+            }
+            Path splitPath = parent.resolve("users_tokens_r" + (i + 1) + ".csv");
+            try (PrintWriter pw = new PrintWriter(
+                    new OutputStreamWriter(new FileOutputStream(splitPath.toFile()), StandardCharsets.UTF_8))) {
+                pw.println(String.join(",", header));
+                for (int j = from; j < to; j++) {
+                    pw.println(String.join(",", lines.get(j)));
+                }
+            }
+            System.out.printf("[OK] 分片 r%d 已写入: %s (%d 用户)\n",
+                    i + 1, splitPath, to - from);
+        }
     }
 
     /**

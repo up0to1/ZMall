@@ -19,6 +19,9 @@ public class SeckillCoupon implements Serializable {
 
     private Integer seckillStock;
 
+    /** 已售库存（领取成功++，取消订单--） */
+    private Integer soldStock;
+
     /** 开抢时间 */
     private LocalDateTime rushBeginTime;
 

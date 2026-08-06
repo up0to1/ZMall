@@ -3,7 +3,6 @@ package com.hmall.pay.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.hmall.api.client.TradeClient;
 import com.hmall.api.client.UserClient;
 import com.hmall.api.dto.DeductMoneyDTO;
 import com.hmall.common.constants.MqConstants;
@@ -38,7 +37,6 @@ import java.time.LocalDateTime;
 public class PayOrderServiceImpl extends ServiceImpl<PayOrderMapper, PayOrder> implements IPayOrderService {
 
     private final UserClient userClient;
-    private final TradeClient tradeClient;
     private final RabbitMqHelper rabbitMqHelper;
 
     @Override

@@ -33,6 +33,9 @@ public interface ISeckillService {
 
     List<SeckillItemVO> listSeckillItems();
 
+    /** 管理后台-查询秒杀商品列表（按商家过滤，只返回当前商家的商品） */
+    List<SeckillItemVO> listSeckillItemsForAdmin();
+
     void preheatStockToRedis(Long itemId);
 
     int batchPreheatStock(List<Long> itemIds);

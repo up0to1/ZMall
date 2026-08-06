@@ -1,6 +1,7 @@
 package com.hmall.social.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.hmall.common.exception.BadRequestException;
 import com.hmall.common.utils.UserContext;
 import com.hmall.social.domain.dto.ShopProfileDTO;
 import com.hmall.social.domain.po.Shop;
@@ -41,6 +42,17 @@ public class ShopProfileServiceImpl implements IShopProfileService {
     @Transactional
     public void updateProfile(ShopProfileDTO dto) {
         Long userId = UserContext.getUser();
+        // 店铺名唯一性校验：排除自己后查重
+        // 2026-07-19 新增：限制商家店铺名不能重名（防滥用 + 防水印歧义）
+        if (dto.getShopName() != null && !dto.getShopName().isBlank()) {
+            Integer count = shopMapper.selectCount(
+                    new LambdaQueryWrapper<Shop>()
+                            .eq(Shop::getShopName, dto.getShopName())
+                            .ne(Shop::getId, userId));
+            if (count != null && count > 0) {
+                throw new BadRequestException("店铺名已被使用，请更换");
+            }
+        }
         // shop.id 就是商家用户ID
         Shop shop = shopMapper.selectById(userId);
         if (shop == null) {
@@ -63,5 +75,14 @@ public class ShopProfileServiceImpl implements IShopProfileService {
             shopMapper.updateById(shop);
             log.info("商家信息更新成功");
         }
+    }
+
+    @Override
+    public String getShopNameByUserId(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        Shop shop = shopMapper.selectById(userId);
+        return shop != null ? shop.getShopName() : null;
     }
 }

@@ -143,7 +143,7 @@ Vue.component('seckill-coupon-page', {
                         <el-button size="small" type="text" @click="selectAllNormalCoupons">选择全部({{normalCouponList.length}})</el-button>
                     </div>
                     <div>
-                        <el-checkbox v-model="setSeckillSelectAll" @change="toggleSetSeckillSelectAll" :indeterminate="setSeckillSelectedIds.length>0 && setSeckillSelectedIds<filteredNormalCouponList.length">全选当前列表</el-checkbox>
+                        <el-checkbox v-model="setSeckillSelectAll" @change="toggleSetSeckillSelectAll" :indeterminate="setSeckillSelectedIds.length>0 && setSeckillSelectedIds.length<filteredNormalCouponList.length">全选当前列表</el-checkbox>
                         <span v-if="setSeckillSelectedIds.length" style="margin-left:12px;font-size:13px;color:#409eff;">已选 {{setSeckillSelectedIds.length}} 个优惠券</span>
                     </div>
                 </div>

@@ -11,6 +11,8 @@ import lombok.experimental.Accessors;
 public class OrderDetailDTO {
     @ApiModelProperty("商品id")
     private Long itemId;
+    @ApiModelProperty("SKU ID（多SKU商品的具体规格组合；不传则后端按默认SKU处理）")
+    private Long skuId;
     @ApiModelProperty("商品购买数量")
     private Integer num;
 }

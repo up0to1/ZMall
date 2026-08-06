@@ -7,6 +7,7 @@ import com.hmall.api.vo.SeckillItemVO;
 import com.hmall.api.dto.*;
 import com.hmall.common.domain.PageDTO;
 import com.hmall.common.exception.BizIllegalException;
+import com.hmall.common.utils.CollUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.openfeign.FallbackFactory;
 
@@ -131,6 +132,18 @@ public class TradeClientFallbackFactory implements FallbackFactory<TradeClient> 
             public void clearPreheat(Long itemId) {
                 log.error("远程调用TradeClient#clearPreheat方法出现异常，参数：itemId={}", itemId, cause);
                 throw new BizIllegalException("交易服务不可用，清除秒杀预热失败", cause);
+            }
+
+            @Override
+            public List<Long> queryUserOrderItemIds(Long userId) {
+                log.error("远程调用TradeClient#queryUserOrderItemIds方法出现异常，参数：{}", userId, cause);
+                return CollUtils.emptyList();
+            }
+
+            @Override
+            public void markItemDeletedInOrders(ItemDeletedMessage msg) {
+                log.error("远程调用TradeClient#markItemDeletedInOrders方法出现异常，参数：{}", msg, cause);
+                // 商品删除标记订单快照失败不阻断商品删除流程，仅记日志
             }
         };
     }

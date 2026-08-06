@@ -3,7 +3,6 @@
 
 <head>
   <meta charset="utf-8"/>
-  <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
   <title>Michael的杂货铺</title>
 
   <link rel="stylesheet" type="text/css" href="css/webbase2.css"/>
@@ -27,7 +26,6 @@
           <div class='yui3-u Left logoArea'>
             <a href="/">
               <div class="logo">
-                <!-- <img src="./img/logo.png" alt="1"/> -->
               </div>
             </a>
           </div>
@@ -1196,22 +1194,6 @@
           // 回车键，搜索
           this.search();
         }
-        /*if (e.keyCode === 8 || (48 <= e.keyCode && e.keyCode <= 57) || (65 <= e.keyCode && e.keyCode <= 90)) {
-          // 字母、数字、backspace键，需要去查询数据
-          this.getSuggestion();
-        } else if (e.keyCode === 13) {
-          // 回车键，搜索
-          this.search();
-        } else if (e.keyCode === 27) {
-          // esc键，取消提示框展示内容
-          this.showOption = false;
-        } else if (e.keyCode === 38) {
-          // up键，选中提示框中的上一个选项
-          this.index > 0 ? this.index-- : this.index = this.options.length - 1
-        } else if (e.keyCode === 40) {
-          // down键，选中提示框中的下一个选项
-          this.index < this.options.length - 1 ? this.index++ : this.index = 0
-        }*/
       },
       getSuggestion() {
         axios.get("/search/suggestion?key=" + this.key)
@@ -1227,11 +1209,11 @@
           })
       },
       search() {
-        if (this.key !== "null") {
+        if (this.key) {
+          window.location = '/search.html?key=' + encodeURIComponent(this.key);
+        } else {
           window.location = '/search.html';
-          return;
         }
-        window.location = '/search.html?key=' + this.key;
       },
       getUrlParam: function (name) {
         var reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");

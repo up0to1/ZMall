@@ -3,6 +3,9 @@ package com.hmall.dashboard.service;
 import com.hmall.api.client.ItemClient;
 import com.hmall.api.client.SocialClient;
 import com.hmall.api.client.TradeClient;
+import com.hmall.api.dto.AiModelStatsDTO;
+import com.hmall.api.dto.AiRatingDistDTO;
+import com.hmall.api.dto.AiTaskTrendDTO;
 import com.hmall.api.dto.FansStatsDTO;
 import com.hmall.api.dto.OrderStatsDTO;
 import com.hmall.api.dto.SalesTrendDTO;
@@ -49,5 +52,19 @@ public class DashboardService {
 
     public List<SeckillStatsDTO> getSeckillStats() {
         return List.of();
+    }
+
+    // ========== AI 数据看板（阶段一：AI 模特图指标），透传 item-service ==========
+
+    public AiModelStatsDTO getAiOverview() {
+        return itemClient.getAiModelStatsOverview();
+    }
+
+    public List<AiTaskTrendDTO> getAiTrend(Integer days) {
+        return itemClient.getAiStatsTrend(days);
+    }
+
+    public List<AiRatingDistDTO> getAiRatingDist() {
+        return itemClient.getAiRatingDist();
     }
 }

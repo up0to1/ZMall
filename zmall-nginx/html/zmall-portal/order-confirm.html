@@ -3,8 +3,6 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=9; IE=8; IE=7; IE=EDGE">
-  <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7" />
   <title>结算页</title>
   <link rel="stylesheet" type="text/css" href="./css/webbase.css" />
   <link rel="stylesheet" type="text/css" href="./css/pages-getOrderInfo.css" />
@@ -42,7 +40,6 @@
     <div class="logoArea">
       <a href="/">
         <div class="logo">
-          <!-- <img src="./img/logo.png" alt="1"/> -->
         </div>
       </a>
       <span>订单确认 </span>
@@ -94,11 +91,6 @@
                     </li>
                     <li class="yui3-u-7-12">
                       <div class="desc">{{item.name}}</div>
-                      <div class="seven">
-                        <div v-for="(v,k) in parseJson(item.spec)">
-                          <span style="color: #504f4f">{{k}}</span> : {{v}}
-                        </div>
-                      </div>
                     </li>
                     <li class="yui3-u-1-12">
                       <div>&nbsp;</div>
@@ -312,10 +304,23 @@
             details.push({itemId, num})
           })
           this.params.details = details;
+          // AI 随心搭联动：携带立即下单的搭配记录上下文，订单创建成功后后端标记"已下单"
+          const pendingOutfit = util.store.get("pendingOutfitOrder");
+          if (pendingOutfit) {
+            if (pendingOutfit.recordId) this.params.outfitRecordId = pendingOutfit.recordId;
+            if (pendingOutfit.taskId) this.params.outfitTaskId = pendingOutfit.taskId;
+            if (pendingOutfit.outfitIndex !== undefined && pendingOutfit.outfitIndex !== null) {
+              this.params.outfitIndex = pendingOutfit.outfitIndex;
+            }
+          }
           axios.post("/orders", this.params)
             .then(resp => {
               // 获取订单id
               let orderId = resp;
+              // 下单成功 → 清除 AI 搭配待下单上下文（已由后端标记"已下单"）
+              if (pendingOutfit) {
+                localStorage.removeItem("pendingOutfitOrder");
+              }
               // 如果使用了优惠券，调用use接口标记优惠券已使用
               if (this.params.couponId && orderId) {
                 axios.post('/coupons/' + this.params.couponId + '/use?orderId=' + orderId).catch(err => {

@@ -59,6 +59,9 @@ public class Coupon implements Serializable {
     /** 1-上架 0-下架 */
     private Integer status;
 
+    /** 创建者（商家用户ID），用于商家数据隔离 */
+    private Long creater;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

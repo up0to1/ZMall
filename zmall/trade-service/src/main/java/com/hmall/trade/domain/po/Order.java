@@ -33,9 +33,14 @@ public class Order implements Serializable {
     private Long id;
 
     /**
-     * 总金额（优惠后），单位为分
+     * 总金额（优惠后，不含运费），单位为分
      */
     private Integer totalFee;
+
+    /**
+     * 运费（单位：分，后台统计用）
+     */
+    private Integer postFee;
 
     /**
      * 支付类型，1、支付宝，2、微信，3、扣减余额
@@ -101,6 +106,11 @@ public class Order implements Serializable {
      * 更新时间
      */
     private LocalDateTime updateTime;
+
+    /**
+     * 用户端是否删除（0=可见, 1=用户已删除，进回收站）
+     */
+    private Integer userDeleted;
 
 
 }

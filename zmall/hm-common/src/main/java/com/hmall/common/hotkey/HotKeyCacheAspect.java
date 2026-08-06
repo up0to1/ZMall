@@ -20,6 +20,9 @@ import java.util.concurrent.TimeUnit;
  * 2. 优先从缓存读取数据
  * 3. 缓存未命中时执行原方法，根据访问频次决定缓存TTL
  * </p>
+ * <p>
+ * 容错策略：Redis 异常时降级为直接执行原方法（不计数不缓存），保证业务可用。
+ * </p>
  */
 @Slf4j
 @Aspect
@@ -39,14 +42,27 @@ public class HotKeyCacheAspect {
         String cacheKey = hotKeyCache.prefix() + keyStr;
         String counterKey = COUNTER_KEY_PREFIX + hotKeyCache.prefix();
 
-        // 2. ZSet计数+1
-        Double score = stringRedisTemplate.opsForZSet().incrementScore(counterKey, keyStr, 1);
+        // 2. ZSet计数+1（容错：Redis异常时降级为直接执行原方法）
+        Double score = null;
+        try {
+            score = stringRedisTemplate.opsForZSet().incrementScore(counterKey, keyStr, 1);
+        } catch (Exception e) {
+            log.warn("热点计数失败，降级直接执行原方法: key={}, error={}", cacheKey, e.getMessage());
+            return pjp.proceed();
+        }
 
         // 3. 判断是否为热点
         boolean isHot = score != null && score >= hotKeyCache.threshold();
 
-        // 4. 尝试从缓存获取
-        String json = stringRedisTemplate.opsForValue().get(cacheKey);
+        // 4. 尝试从缓存获取（容错：Redis异常时降级为直接执行原方法）
+        String json;
+        try {
+            json = stringRedisTemplate.opsForValue().get(cacheKey);
+        } catch (Exception e) {
+            log.warn("缓存读取失败，降级直接执行原方法: key={}, error={}", cacheKey, e.getMessage());
+            return pjp.proceed();
+        }
+
         if (StrUtil.isNotBlank(json)) {
             Class<?> returnType = ((MethodSignature) pjp.getSignature()).getReturnType();
             return JSONUtil.toBean(json, returnType);
@@ -59,17 +75,22 @@ public class HotKeyCacheAspect {
         // 5. 缓存未命中，执行原方法
         Object result = pjp.proceed();
 
-        // 6. 根据热点状态决定缓存策略
-        if (result != null) {
-            long ttl = isHot ? hotKeyCache.hotCacheTime() : hotKeyCache.warmCacheTime();
-            TimeUnit unit = isHot ? hotKeyCache.hotCacheUnit() : hotKeyCache.warmCacheUnit();
-            stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(result), ttl, unit);
-            if (isHot) {
-                log.debug("热点Key缓存写入: key={}, score={}, ttl={}{}", cacheKey, score, ttl, unitToString(unit));
+        // 6. 根据热点状态决定缓存策略（容错：缓存写入失败不影响业务结果）
+        try {
+            if (result != null) {
+                long ttl = isHot ? hotKeyCache.hotCacheTime() : hotKeyCache.warmCacheTime();
+                TimeUnit unit = isHot ? hotKeyCache.hotCacheUnit() : hotKeyCache.warmCacheUnit();
+                stringRedisTemplate.opsForValue().set(cacheKey, JSONUtil.toJsonStr(result), ttl, unit);
+                if (isHot) {
+                    log.info("热点Key识别并缓存: key={}, score={}, ttl={}{}",
+                            cacheKey, score.longValue(), ttl, unitToString(unit));
+                }
+            } else {
+                // 空值缓存，短TTL防穿透
+                stringRedisTemplate.opsForValue().set(cacheKey, "", 2L, TimeUnit.MINUTES);
             }
-        } else {
-            // 空值缓存，短TTL防穿透
-            stringRedisTemplate.opsForValue().set(cacheKey, "", 2L, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("缓存写入失败（不影响业务结果）: key={}, error={}", cacheKey, e.getMessage());
         }
 
         return result;

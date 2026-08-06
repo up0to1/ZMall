@@ -419,7 +419,19 @@ new Vue({
     },
     pollResult(id, type) {
       const url = type === 'item' ? '/seckill/result/' + id : '/seckill/coupon/result/' + id;
+      let pollCount = 0;
+      const MAX_POLL = 30;
       const poll = () => {
+        pollCount++;
+        if (pollCount > MAX_POLL) {
+          if (type === 'item') this.$set(this.seckilling, id, false);
+          else this.$set(this.seckillingCoupon, id, false);
+          this.resultTitle = '查询超时';
+          this.resultMsg = '抢购结果查询超时，请到订单页查看';
+          this.resultClass = 'fail';
+          this.showResult = true;
+          return;
+        }
         axios.get(url).then(res => {
           if (res && res.code === 0) {
             this.resultTitle = '抢购成功！';

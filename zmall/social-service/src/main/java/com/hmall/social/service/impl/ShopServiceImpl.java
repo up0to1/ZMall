@@ -17,11 +17,13 @@ import com.hmall.common.utils.UserContext;
 import com.hmall.common.exception.BadRequestException;
 import com.hmall.api.dto.ShopFeedDTO;
 import com.hmall.social.domain.dto.ShopProfileDTO;
+import com.hmall.social.domain.dto.ShopSimpleDTO;
 import com.hmall.social.domain.dto.ShopFeedMessage;
 import com.hmall.social.domain.dto.FeedScrollDTO;
 import com.hmall.social.domain.po.ShopFeed;
 import com.hmall.social.domain.po.ShopFollow;
 import com.hmall.social.domain.po.Shop;
+import com.hmall.social.domain.po.ShopAddress;
 import com.hmall.social.mapper.ShopFeedMapper;
 import com.hmall.social.mapper.ShopFollowMapper;
 import com.hmall.social.service.IShopService;
@@ -49,6 +51,7 @@ public class ShopServiceImpl implements IShopService {
     private final ShopFollowMapper shopFollowMapper;
     private final ShopFeedMapper shopFeedMapper;
     private final com.hmall.social.mapper.ShopMapper shopMapper;
+    private final com.hmall.social.mapper.ShopAddressMapper shopAddressMapper;
     private final RedisIdWorker redisIdWorker;
     private final StringRedisTemplate stringRedisTemplate;
     private final RabbitMqHelper rabbitMqHelper;
@@ -141,7 +144,10 @@ public class ShopServiceImpl implements IShopService {
 
     @Override
     public PageDTO<FansVO> queryFansPage(int page, int size, String keyword) {
+        // 按当前商家 shopId 过滤：只有关注了当前商家店铺的用户才是该商家的粉丝
+        Long currentShopId = resolveCurrentShopId();
         LambdaQueryWrapper<ShopFollow> wrapper = new LambdaQueryWrapper<ShopFollow>()
+                .eq(currentShopId != null, ShopFollow::getShopId, currentShopId)
                 .like(StrUtil.isNotBlank(keyword), ShopFollow::getUserId, keyword)
                 .orderByDesc(ShopFollow::getCreateTime);
         Page<ShopFollow> followPage = shopFollowMapper.selectPage(new Page<>(page, size), wrapper);
@@ -158,29 +164,50 @@ public class ShopServiceImpl implements IShopService {
 
     @Override
     public FansStatsDTO getFansStats() {
+        // 按当前商家 shopId 过滤
+        Long currentShopId = resolveCurrentShopId();
         LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
         LocalDateTime weekStart = LocalDateTime.of(LocalDate.now().minusDays(6), LocalTime.MIN);
 
         FansStatsDTO stats = new FansStatsDTO();
-        stats.setTotalFans(Long.valueOf(shopFollowMapper.selectCount(null)));
+        LambdaQueryWrapper<ShopFollow> baseWrapper = currentShopId != null
+                ? new LambdaQueryWrapper<ShopFollow>().eq(ShopFollow::getShopId, currentShopId)
+                : new LambdaQueryWrapper<>();
+        stats.setTotalFans(Long.valueOf(shopFollowMapper.selectCount(baseWrapper)));
         stats.setTodayNew(Long.valueOf(shopFollowMapper.selectCount(
-                new LambdaQueryWrapper<ShopFollow>().ge(ShopFollow::getCreateTime, todayStart))));
+                new LambdaQueryWrapper<ShopFollow>()
+                        .eq(currentShopId != null, ShopFollow::getShopId, currentShopId)
+                        .ge(ShopFollow::getCreateTime, todayStart))));
         stats.setWeekNew(Long.valueOf(shopFollowMapper.selectCount(
-                new LambdaQueryWrapper<ShopFollow>().ge(ShopFollow::getCreateTime, weekStart))));
-        stats.setActiveFans(Long.valueOf(shopFollowMapper.selectCount(null)));
+                new LambdaQueryWrapper<ShopFollow>()
+                        .eq(currentShopId != null, ShopFollow::getShopId, currentShopId)
+                        .ge(ShopFollow::getCreateTime, weekStart))));
+        stats.setActiveFans(stats.getTotalFans());
         return stats;
     }
 
     @Override
     @Transactional
     public void deleteFeed(Long feedId) {
+        // 所有权校验：只能删除自己店铺的 Feed
+        Long userId = UserContext.getUser();
+        ShopFeed feed = shopFeedMapper.selectById(feedId);
+        if (feed == null) {
+            throw new BadRequestException("动态不存在或已被删除");
+        }
+        if (!userId.equals(feed.getUserId())) {
+            throw new BadRequestException("无权删除他人店铺的动态");
+        }
         shopFeedMapper.deleteById(feedId);
-        log.info("商家Feed动态已删除: feedId={}", feedId);
+        log.info("商家Feed动态已删除: feedId={}, operator={}", feedId, userId);
     }
 
     @Override
     public PageDTO<FeedVO> queryFeedPage(int page, int size, String keyword) {
+        // 按当前商家 shopId 过滤：只返回当前商家店铺的 Feed
+        Long currentShopId = resolveCurrentShopId();
         LambdaQueryWrapper<ShopFeed> wrapper = new LambdaQueryWrapper<ShopFeed>()
+                .eq(currentShopId != null, ShopFeed::getShopId, currentShopId)
                 .like(StrUtil.isNotBlank(keyword), ShopFeed::getContent, keyword)
                 .orderByDesc(ShopFeed::getCreateTime);
         Page<ShopFeed> feedPage = shopFeedMapper.selectPage(new Page<>(page, size), wrapper);
@@ -200,27 +227,68 @@ public class ShopServiceImpl implements IShopService {
         return PageDTO.of(feedPage.getTotal(), feedPage.getPages(), list);
     }
 
+    /**
+     * 解析当前登录商家对应的店铺ID
+     * <p>商家 userId 与 shop.userId 关联；若商家未创建店铺则返回 null（保守起见返回全表，
+     * 但通常 publishFeed 等接口已要求商家必须有店铺）。
+     */
+    private Long resolveCurrentShopId() {
+        Long userId = UserContext.getUser();
+        if (userId == null) {
+            return null;
+        }
+        Shop shop = shopMapper.selectOne(
+                new LambdaQueryWrapper<Shop>().eq(Shop::getUserId, userId));
+        return shop != null ? shop.getId() : null;
+    }
+
     @Override
     public ShopProfileDTO getShopInfoByUserId(Long userId) {
         // 根据商家用户ID查询店铺
         Shop shop = shopMapper.selectOne(
                 new LambdaQueryWrapper<Shop>().eq(Shop::getUserId, userId));
+        // 查询当前发货地址（is_default=1）
+        String shipFrom = resolveShipFrom(userId);
         if (shop == null) {
+            // 店铺不存在时使用默认名"Michael杂货铺"
             ShopProfileDTO dto = new ShopProfileDTO();
             dto.setId(userId);
             dto.setUserId(userId);
-            dto.setShopName("商家" + userId);
+            dto.setShopName("Michael杂货铺");
+            dto.setCurrentShipFrom(shipFrom);
             return dto;
         }
         ShopProfileDTO dto = new ShopProfileDTO();
         dto.setId(shop.getId());
         dto.setUserId(shop.getUserId() != null ? shop.getUserId() : shop.getId());
-        dto.setShopName(shop.getShopName());
+        // 店铺未起名时使用默认名"Michael杂货铺"
+        String shopName = shop.getShopName();
+        dto.setShopName((shopName == null || shopName.trim().isEmpty()) ? "Michael杂货铺" : shopName);
         dto.setLogo(shop.getLogo());
         dto.setDescription(shop.getDescription());
         dto.setContactPhone(shop.getContactPhone());
         dto.setAddress(shop.getAddress());
+        dto.setCurrentShipFrom(shipFrom);
         return dto;
+    }
+
+    /**
+     * 查询商家当前发货地（is_default=1 的发货地址，拼接"省市"或"省市区"）
+     * <p>若未设置默认发货地址，返回 null。
+     */
+    private String resolveShipFrom(Long userId) {
+        ShopAddress addr = shopAddressMapper.selectOne(
+                new LambdaQueryWrapper<ShopAddress>()
+                        .eq(ShopAddress::getUserId, userId)
+                        .eq(ShopAddress::getIsDefault, 1)
+                        .last("LIMIT 1"));
+        if (addr == null) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        if (StrUtil.isNotBlank(addr.getProvince())) sb.append(addr.getProvince());
+        if (StrUtil.isNotBlank(addr.getCity())) sb.append(addr.getCity());
+        return sb.length() > 0 ? sb.toString() : null;
     }
 
     @Override
@@ -433,5 +501,17 @@ public class ShopServiceImpl implements IShopService {
                     return dto;
                 }).collect(Collectors.toList());
         return PageDTO.of(followPage.getTotal(), followPage.getPages(), list);
+    }
+
+    @Override
+    public List<ShopSimpleDTO> listShops() {
+        List<Shop> shops = shopMapper.selectList(null);
+        return shops.stream().map(s -> {
+            ShopSimpleDTO dto = new ShopSimpleDTO();
+            dto.setId(s.getId());
+            dto.setShopName(s.getShopName());
+            dto.setUserId(s.getUserId());
+            return dto;
+        }).collect(Collectors.toList());
     }
 }

@@ -158,7 +158,7 @@ Vue.component('seckill-item-page', {
                         <el-button size="small" type="text" @click="selectAllNormalItems">选择全部({{normalItemList.length}})</el-button>
                     </div>
                     <div>
-                        <el-checkbox v-model="setSeckillSelectAll" @change="toggleSetSeckillSelectAll" :indeterminate="setSeckillSelectedIds.length>0 && setSeckillSelectedIds<filteredNormalItemList.length">全选当前列表</el-checkbox>
+                        <el-checkbox v-model="setSeckillSelectAll" @change="toggleSetSeckillSelectAll" :indeterminate="setSeckillSelectedIds.length>0 && setSeckillSelectedIds.length<filteredNormalItemList.length">全选当前列表</el-checkbox>
                         <span v-if="setSeckillSelectedIds.length" style="margin-left:12px;font-size:13px;color:#409eff;">已选 {{setSeckillSelectedIds.length}} 个商品</span>
                     </div>
                 </div>
@@ -492,7 +492,8 @@ Vue.component('seckill-item-page', {
         },
         loadNormalItems() {
             this.normalItemListLoading = true;
-            ZM.http.get('/items/admin/page', { params: { page: 1, size: 1000, itemType: 1 } }).then(res => {
+            // onlyMine=true 强制只查当前商家自己的商品（秒杀商品只能选本店铺商品）
+            ZM.http.get('/items/admin/page', { params: { page: 1, size: 1000, itemType: 1, onlyMine: true } }).then(res => {
                 this.normalItemListLoading = false;
                 let data = res;
                 if (res && res.data && res.data.list) data = res.data;

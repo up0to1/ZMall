@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>添加衣橱 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/ai-outfit.css"/>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="ai-container">
+    <h1 class="ai-page-title">添加衣橱</h1>
+
+    <!-- 类型选择 -->
+    <div class="ai-section">
+      <h3>选择衣橱条目类型</h3>
+      <div class="photo-options">
+        <div class="photo-option" :class="{active: itemType === 1}" @click="switchType(1)">
+          <div class="option-icon">🛍️</div>
+          <div class="option-label">关联商品单品</div>
+          <div class="option-desc">从平台商品中挑选</div>
+        </div>
+        <div class="photo-option" :class="{active: itemType === 2}" @click="switchType(2)">
+          <div class="option-icon">📸</div>
+          <div class="option-label">自定义上传</div>
+          <div class="option-desc">上传已有服饰图</div>
+        </div>
+        <div class="photo-option" :class="{active: itemType === 3}" @click="switchType(3)">
+          <div class="option-icon">🤳</div>
+          <div class="option-label">全身自拍</div>
+          <div class="option-desc">用于 VTON 真人换装</div>
+        </div>
+      </div>
+      <div class="form-hint">
+        注：AI 搭配效果图（itemType=4）由"满意搭配入库"流程自动写入，不可在此手动添加
+      </div>
+    </div>
+
+    <!-- type=1：商品单品 -->
+    <div class="ai-section" v-if="itemType === 1">
+      <h3>挑选商品</h3>
+      <div class="form-group">
+        <label class="form-label">搜索商品 <span class="required">*</span></label>
+        <div class="form-row">
+          <input v-model="searchKey" class="form-input" placeholder="输入商品名称或 ID 搜索" @keyup.enter="searchItems"/>
+          <button class="btn-primary" style="padding:8px 24px;font-size:14px;" @click="searchItems">搜索</button>
+        </div>
+      </div>
+      <div v-if="searching" class="ai-no-data">搜索中...</div>
+      <div v-else-if="searchResults.length > 0" class="picker-list">
+        <div v-for="it in searchResults" :key="it.id"
+             class="picker-item" :class="{selected: form.itemId === it.id}"
+             @click="selectItem(it)">
+          <input type="radio" class="picker-checkbox" :checked="form.itemId === it.id" @click.stop="selectItem(it)"/>
+          <img :src="it.image" :alt="it.name"/>
+          <div class="picker-item-info">
+            <div class="picker-item-name">{{ it.name }}</div>
+            <div class="picker-item-meta">
+              {{ it.category || '-' }} · {{ it.brand || '-' }} · ￥{{ formatPrice(it.price) }}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="searched" class="ai-no-data">未找到相关商品</div>
+    </div>
+
+    <!-- type=2/3：照片上传 -->
+    <div class="ai-section" v-if="itemType === 2 || itemType === 3">
+      <h3>上传照片 <span class="required">*</span></h3>
+      <div class="photo-uploader" :class="{'has-photo': photoPreview}" @click="triggerFileInput">
+        <img v-if="photoPreview" :src="photoPreview" alt="预览"/>
+        <div v-else>
+          <div class="upload-icon">📤</div>
+          <div class="upload-text">点击上传 {{ itemType === 2 ? '服饰图' : '全身自拍' }}</div>
+          <div class="upload-hint">支持 jpg/png，≤10MB</div>
+        </div>
+      </div>
+      <input ref="fileInput" type="file" accept="image/jpeg,image/png" style="display:none;" @change="onFileChange"/>
+      <div v-if="photoPreview" style="margin-top:8px;">
+        <button class="btn-link" @click="clearPhoto">清除重选</button>
+      </div>
+    </div>
+
+    <!-- 通用属性 -->
+    <div class="ai-section">
+      <h3>属性标注（选填，便于 AI 检索）</h3>
+      <div class="form-group">
+        <label class="form-label">品类</label>
+        <select v-model="form.category" class="form-select">
+          <option :value="null">不限</option>
+          <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">颜色</label>
+        <select v-model="form.color" class="form-select">
+          <option :value="null">不限</option>
+          <!-- P2 修复：颜色存 value（英文 black/white），与 outfit-agent/feedback-dialog 一致，避免后端匹配失配 -->
+          <option v-for="c in colorOptions" :key="c.value" :value="c.value">{{ c.label }}</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">风格标签 <span class="ai-text-muted">（多选）</span></label>
+        <div class="chip-group">
+          <span v-for="tag in styleOptions" :key="tag"
+                class="chip" :class="{active: form.styleTags.indexOf(tag) >= 0}"
+                @click="toggleStyle(tag)">{{ tag }}</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">场景标注 <span class="ai-text-muted">（≤30 字）</span></label>
+        <input v-model="form.sceneDesc" class="form-input" placeholder="如：通勤、约会、运动..." maxlength="30"/>
+      </div>
+    </div>
+
+    <!-- 提交按钮 -->
+    <div style="text-align:center;padding:20px 0;">
+      <button class="btn-ai-outfit" :disabled="!canSubmit || submitting" @click="submit" style="padding:14px 60px;">
+        {{ submitting ? '提交中...' : '加入衣橱' }}
+      </button>
+      <div class="form-hint" v-if="!canSubmit" style="margin-top:8px;color:#ff9800;">
+        {{ submitHint }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    itemType: 1,                // 默认单品
+    searchKey: '',
+    searching: false,
+    searched: false,
+    searchResults: [],
+    selectedItem: null,
+    photoPreview: '',           // base64 预览
+    photoBase64: '',            // 提交用 base64
+    submitting: false,
+    form: {
+      itemId: null,
+      photoUrl: null,
+      category: null,
+      color: null,
+      styleTags: [],
+      sceneDesc: '',
+    },
+    styleOptions: ['通勤', '休闲', '约会', '运动', '商务', '街头', '复古', '欧美', '亚洲', '清新'],
+    colorOptions: [
+      { value: 'black', label: '黑色' }, { value: 'white', label: '白色' },
+      { value: 'red', label: '红色' }, { value: 'blue', label: '蓝色' },
+      { value: 'gray', label: '灰色' }, { value: 'khaki', label: '卡其' },
+      { value: 'green', label: '绿色' }, { value: 'yellow', label: '黄色' },
+    ],
+    categoryOptions: ['上衣', '下装', '全身套装', '鞋', '帽子', '包', '配饰'],
+  },
+  computed: {
+    canSubmit() {
+      if (this.itemType === 1) return !!this.form.itemId;
+      if (this.itemType === 2 || this.itemType === 3) return !!this.photoBase64;
+      return false;
+    },
+    submitHint() {
+      if (this.itemType === 1) return '请选择商品';
+      if (this.itemType === 2 || this.itemType === 3) return '请上传照片';
+      return '';
+    },
+  },
+  methods: {
+    formatPrice(val) { return util.formatPrice(val); },
+    switchType(t) {
+      this.itemType = t;
+      // 重置相关字段
+      this.form.itemId = null;
+      this.form.photoUrl = null;
+      this.photoPreview = '';
+      this.photoBase64 = '';
+      this.selectedItem = null;
+    },
+    toggleStyle(tag) {
+      const i = this.form.styleTags.indexOf(tag);
+      if (i >= 0) this.form.styleTags.splice(i, 1);
+      else this.form.styleTags.push(tag);
+    },
+    async searchItems() {
+      const key = this.searchKey.trim();
+      if (!key) return;
+      this.searching = true;
+      this.searched = false;
+      try {
+        // 优先按 ID 搜索
+        let res;
+        if (/^\d+$/.test(key)) {
+          try {
+            const item = await axios.get('/items/' + key);
+            res = item ? [item] : [];
+          } catch (e) { res = []; }
+        }
+        if (!res || res.length === 0) {
+          // 调搜索接口
+          const list = await axios.get('/items/search', { params: { key, page: 1, size: 20 } });
+          res = (list && list.records) || (list && list.list) || (Array.isArray(list) ? list : []);
+        }
+        this.searchResults = res;
+      } catch (e) {
+        this.searchResults = [];
+      } finally {
+        this.searching = false;
+        this.searched = true;
+      }
+    },
+    selectItem(it) {
+      this.selectedItem = it;
+      this.form.itemId = it.id;
+      // 自动填充 category/color
+      if (it.category) this.form.category = it.category;
+    },
+    triggerFileInput() {
+      if (this.photoPreview) return;
+      this.$refs.fileInput.click();
+    },
+    onFileChange(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) {
+        util.toast('图片不能超过 10MB', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        this.photoPreview = ev.target.result;
+        this.photoBase64 = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+      // P2 修复：清空 input value，允许重复选择同一文件
+      e.target.value = '';
+    },
+    clearPhoto() {
+      this.photoPreview = '';
+      this.photoBase64 = '';
+    },
+    async submit() {
+      if (!this.canSubmit || this.submitting) return;
+      this.submitting = true;
+      try {
+        const body = {
+          itemType: this.itemType,
+          itemId: this.itemType === 1 ? this.form.itemId : null,
+          photoUrl: this.itemType === 2 || this.itemType === 3 ? this.photoBase64 : null,
+          category: this.form.category,
+          color: this.form.color,
+          styleTags: this.form.styleTags.length ? JSON.stringify(this.form.styleTags) : null,
+          sceneDesc: this.form.sceneDesc || null,
+        };
+        await axios.post('/wardrobe', body);
+        util.toast('已加入衣橱', 'success');
+        setTimeout(() => location.href = '/wardrobe.html', 1500);
+      } catch (err) {
+        const status = err.response && err.response.status;
+        const data = err.response && err.response.data || {};
+        if (status === 400) {
+          util.toast(data.detail || data.msg || '参数错误：单品需 itemId，自定义需 photoUrl', 'error');
+        } else {
+          util.toast(data.msg || data.detail || '添加失败', 'error');
+        }
+      } finally {
+        this.submitting = false;
+      }
+    },
+  },
+});
+</script>
+</body>
+</html>

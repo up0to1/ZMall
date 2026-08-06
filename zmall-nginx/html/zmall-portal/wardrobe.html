@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>我的衣橱 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/ai-outfit.css"/>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="ai-container">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h1 class="ai-page-title" style="margin:0;">我的衣橱</h1>
+      <div>
+        <a href="/wardrobe-upload.html" class="btn-primary" style="padding:8px 20px;font-size:14px;">+ 添加衣橱</a>
+        <a href="/outfit-agent.html" class="btn-link" style="margin-left:12px;">用衣橱生成搭配 →</a>
+      </div>
+    </div>
+
+    <!-- 身体信息档案区块（性别与服装匹配 2026-07-27 新增）-->
+    <div class="ai-section" style="background:#fff8e1;border:1px solid #ffe082;padding:14px 16px;border-radius:6px;margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h3 style="margin:0;font-size:15px;color:#6d4c41;">📏 身体信息档案 <span style="font-size:12px;color:#999;font-weight:normal;">（AI 搭配必填，含性别）</span></h3>
+        <button class="btn-primary" @click="openBodyProfileEditor(null)" style="padding:6px 16px;font-size:13px;">+ 登记档案</button>
+      </div>
+      <div style="font-size:12px;color:#6d4c41;margin-bottom:10px;">
+        ⚠️ AI 随心搭会根据档案性别筛选服装（男款/女款/中性款），请确保信息准确。未登记档案将无法使用 AI 搭配功能。
+      </div>
+      <!-- 档案列表 -->
+      <div v-if="bodyProfileList.length === 0" style="padding:14px;background:#fff;border-radius:4px;border:1px dashed #ffb300;text-align:center;">
+        <div style="font-size:13px;color:#d32f2f;margin-bottom:8px;">暂无身体信息档案，无法使用 AI 搭配功能</div>
+        <button class="btn-primary" @click="openBodyProfileEditor(null)" style="font-size:13px;">立即登记 →</button>
+      </div>
+      <div v-else style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">
+        <div v-for="p in bodyProfileList" :key="p.id"
+             style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div>
+              <strong style="font-size:14px;">{{ p.profileName || '档案 #' + p.id }}</strong>
+              <span v-if="p.isDefault === 1" style="margin-left:6px;padding:1px 6px;border-radius:8px;font-size:11px;background:#67c23a;color:#fff;">默认</span>
+              <span :class="p.gender"
+                    style="margin-left:6px;padding:2px 8px;border-radius:10px;font-size:11px;color:#fff;"
+                    :style="{background: p.gender === 'male' ? '#1976d2' : '#e91e63'}">
+                {{ genderLabel(p.gender) }}
+              </span>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#666;line-height:1.7;">
+            <div>身高 {{ p.height || '-' }}cm / 体重 {{ p.weight || '-' }}kg · {{ bodyTypeLabel(p.bodyType) }} · {{ ageRangeLabel(p.ageRange) }}</div>
+            <div v-if="p.height || p.bust">
+              肩宽 {{ p.shoulderWidth || '-' }}cm · 胸围 {{ p.bust || '-' }}cm · 腰围 {{ p.waist || '-' }}cm
+            </div>
+            <div v-if="p.hip || p.footLength">
+              臀围 {{ p.hip || '-' }}cm · 脚长 {{ p.footLength || '-' }}cm · 脚宽 {{ p.footWidth || '-' }}cm
+            </div>
+            <div v-if="p.headCircumference">头围 {{ p.headCircumference }}cm</div>
+            <div v-if="p.measuredAt" style="color:#999;">测量日期：{{ p.measuredAt }}</div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn-link" @click="openBodyProfileEditor(p)" style="font-size:12px;">编辑</button>
+            <button v-if="p.isDefault !== 1" class="btn-link" @click="setDefaultBodyProfile(p.id)" style="font-size:12px;">设为默认</button>
+            <button class="btn-link" @click="deleteBodyProfile(p.id)" style="font-size:12px;color:#e54346;">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 身体信息档案编辑模态框 -->
+    <div v-if="bodyProfileEditor.show" class="modal-mask" @click.self="bodyProfileEditor.show = false">
+      <div class="modal-box" style="max-width:600px;">
+        <div class="modal-header">
+          <h3>{{ bodyProfileEditor.id ? '编辑身体信息档案' : '登记身体信息档案' }}</h3>
+          <button class="modal-close" @click="bodyProfileEditor.show = false">×</button>
+        </div>
+        <div class="modal-body" style="padding:16px;max-height:60vh;overflow-y:auto;">
+          <!-- 性别（必填，含善意提醒）-->
+          <div class="form-group">
+            <label class="form-label"><span style="color:#e54346;">*</span> 性别 <span style="color:#999;font-size:12px;">（AI 搭配必填，决定服装筛选范围）</span></label>
+            <div class="chip-group">
+              <span class="chip" :class="{active: bodyProfileEditor.form.gender === 'male'}"
+                    @click="bodyProfileEditor.form.gender = 'male'">♂ 男</span>
+              <span class="chip" :class="{active: bodyProfileEditor.form.gender === 'female'}"
+                    @click="bodyProfileEditor.form.gender = 'female'">♀ 女</span>
+            </div>
+            <div class="form-hint" style="color:#d32f2f;">⚠️ 请如实选择性别：男用户推荐男款+中性款，女用户推荐女款+中性款</div>
+          </div>
+          <!-- 档案名称 -->
+          <div class="form-group">
+            <label class="form-label"><span style="color:#e54346;">*</span> 档案名称</label>
+            <input v-model="bodyProfileEditor.form.profileName" class="form-input"
+                   placeholder="如：2026年7月身材 / 标准身材" type="text"/>
+          </div>
+          <!-- 身高体重 -->
+          <div class="form-row" style="display:flex;gap:12px;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">身高 (cm)</label>
+              <input v-model.number="bodyProfileEditor.form.height" class="form-input"
+                     type="number" min="140" max="210" placeholder="140-210"/>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">体重 (kg)</label>
+              <input v-model.number="bodyProfileEditor.form.weight" class="form-input"
+                     type="number" min="35" max="150" step="0.1" placeholder="35-150"/>
+            </div>
+          </div>
+          <!-- 三围 -->
+          <div class="form-row" style="display:flex;gap:12px;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">肩宽 (cm)</label>
+              <input v-model.number="bodyProfileEditor.form.shoulderWidth" class="form-input"
+                     type="number" min="35" max="55" step="0.1" placeholder="35-55"/>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">胸围 (cm)</label>
+              <input v-model.number="bodyProfileEditor.form.bust" class="form-input"
+                     type="number" min="70" max="130" step="0.1" placeholder="70-130"/>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">腰围 (cm)</label>
+              <input v-model.number="bodyProfileEditor.form.waist" class="form-input"
+                     type="number" min="50" max="130" step="0.1" placeholder="50-130"/>
+            </div>
+          </div>
+          <div class="form-row" style="display:flex;gap:12px;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">臀围 (cm)</label>
+              <input v-model.number="bodyProfileEditor.form.hip" class="form-input"
+                     type="number" min="70" max="140" step="0.1" placeholder="70-140"/>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">脚长 (cm)</label>
+              <input v-model.number="bodyProfileEditor.form.footLength" class="form-input"
+                     type="number" min="20" max="32" step="0.1" placeholder="20-32"/>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">脚宽 (cm)</label>
+              <input v-model.number="bodyProfileEditor.form.footWidth" class="form-input"
+                     type="number" min="8" max="12" step="0.1" placeholder="8-12"/>
+            </div>
+          </div>
+          <div class="form-row" style="display:flex;gap:12px;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">头围 (cm) <span style="color:#999;font-size:12px;">（帽子推荐用）</span></label>
+              <input v-model.number="bodyProfileEditor.form.headCircumference" class="form-input"
+                     type="number" min="50" max="65" step="0.1" placeholder="50-65"/>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">年龄段</label>
+              <select v-model="bodyProfileEditor.form.ageRange" class="form-select">
+                <option value="">不填</option>
+                <option value="18-25">18-25 岁</option>
+                <option value="26-35">26-35 岁</option>
+                <option value="36-45">36-45 岁</option>
+                <option value="46+">46 岁以上</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">体型</label>
+              <select v-model="bodyProfileEditor.form.bodyType" class="form-select">
+                <option value="">不填</option>
+                <option value="slim">苗条</option>
+                <option value="standard">标准</option>
+                <option value="curvy">曲线</option>
+                <option value="plus">丰满</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row" style="display:flex;gap:12px;">
+            <div class="form-group" style="flex:1;">
+              <label class="form-label">测量日期</label>
+              <input v-model="bodyProfileEditor.form.measuredAt" class="form-input" type="date"/>
+            </div>
+            <div class="form-group" style="flex:1;display:flex;align-items:flex-end;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" v-model="bodyProfileEditor.form.isDefault"
+                       :true-value="1" :false-value="0" style="width:auto;"/>
+                设为默认档案
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="bodyProfileEditor.show = false">取消</button>
+          <button class="btn-confirm" @click="saveBodyProfile" :disabled="bodyProfileEditor.saving">
+            {{ bodyProfileEditor.saving ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 衣橱条目编辑模态框（增删改查-改，2026-08-06 新增） -->
+    <div v-if="editor.show" class="modal-mask" @click.self="editor.show = false">
+      <div class="modal-box" style="max-width:520px;">
+        <div class="modal-header">
+          <h3>编辑衣橱条目</h3>
+          <button class="modal-close" @click="editor.show = false">×</button>
+        </div>
+        <div class="modal-body" style="padding:16px;">
+          <div class="form-group">
+            <label class="form-label">条目类型</label>
+            <input :value="typeText(editor.form.itemType)" class="form-input" disabled/>
+          </div>
+          <div v-if="editor.form.itemType === 1" class="form-group">
+            <label class="form-label">品类</label>
+            <select v-model="editor.form.category" class="form-select">
+              <option value="">未分类</option>
+              <option v-for="cat in outfitCategoryOptions" :key="cat" :value="cat">{{ cat }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">颜色</label>
+            <input v-model="editor.form.color" class="form-input" placeholder="如：黑色 / 白色 / 蓝色"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">风格标签 <span style="color:#999;font-size:12px;">（多个用英文逗号分隔，如：通勤,简约）</span></label>
+            <input v-model="editor.form.styleTagsText" class="form-input" placeholder="通勤,简约"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">场景备注</label>
+            <input v-model="editor.form.sceneDesc" class="form-input" placeholder="如：通勤穿搭"/>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="editor.show = false">取消</button>
+          <button class="btn-confirm" @click="saveEditor" :disabled="editor.saving">
+            {{ editor.saving ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 图片预览（点击放大，2026-08-06 新增） -->
+    <div v-if="previewUrl" class="modal-mask" @click.self="previewUrl = ''">
+      <div class="modal-box" style="max-width:90vw;background:#1f1f1f;border:none;box-shadow:0 4px 24px rgba(0,0,0,0.5);padding:10px 10px 14px;">
+        <div style="text-align:right;margin-bottom:6px;">
+          <button class="modal-close" @click="previewUrl = ''" style="color:#fff;font-size:20px;">×</button>
+        </div>
+        <img :src="previewUrl" alt="图片预览" style="max-width:100%;max-height:76vh;display:block;margin:0 auto;border-radius:4px;"/>
+      </div>
+    </div>
+
+    <!-- 筛选 Tab -->
+    <div class="wardrobe-tabs">
+      <div v-for="t in tabs" :key="t.value"
+           class="wardrobe-tab" :class="{active: activeTab === t.value}"
+           @click="activeTab = t.value">
+        {{ t.label }} <span class="ai-text-muted">({{ countByTab(t.value) }})</span>
+      </div>
+    </div>
+
+    <!-- AI 搭配效果图列表（itemType=4） -->
+    <div v-if="activeTab === 'all' || activeTab === 'ai'">
+      <div v-if="aiOutfits.length === 0" class="ai-no-data" v-show="activeTab === 'ai' || (activeTab === 'all' && items.length === 0)">
+        暂无 AI 搭配效果图，去 <a href="/outfit-agent.html" class="btn-link">生成搭配</a>
+      </div>
+      <div v-for="o in aiOutfits" :key="o.id" class="ai-outfit-card">
+        <div class="card-title">
+          <span>AI 搭配效果图 #{{ o.recordId || o.id }}</span>
+          <span>
+            <span class="action-tag" v-if="o.sceneDesc">{{ o.sceneDesc }}</span>
+            <button class="btn-link" @click="openEditor(o)" style="color:#1976d2;">编辑</button>
+            <button class="btn-link" @click="removeItem(o.id)" style="color:#999;">删除</button>
+          </span>
+        </div>
+        <div class="photo-compare">
+          <div class="photo-block">
+            <div class="photo-label">模特 / 原始照片</div>
+            <img v-if="o.originalPhotoUrl" :src="o.originalPhotoUrl" alt="模特/原始照片"
+                 @click="previewPhoto(o.originalPhotoUrl)"/>
+            <div v-else class="photo-placeholder">
+              <span class="placeholder-icon">🧍</span>
+              <span>系统默认模特</span>
+            </div>
+          </div>
+          <div class="photo-block">
+            <div class="photo-label">换装效果</div>
+            <img v-if="o.outfitResultUrl" :src="o.outfitResultUrl" alt="换装效果图"
+                 @click="previewPhoto(o.outfitResultUrl)"/>
+            <div v-else class="photo-placeholder">
+              <span class="placeholder-icon">🖼️</span>
+              <span>暂无效果图</span>
+            </div>
+          </div>
+        </div>
+        <div class="items-summary" v-if="parseOutfitJson(o.outfitJson).length > 0">
+          <div v-for="(it, i) in parseOutfitJson(o.outfitJson)" :key="i"
+               style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f5f5f5;">
+            <img v-if="it.image || it.imageUrl" :src="it.image || it.imageUrl" :alt="it.name"
+                 style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;cursor:zoom-in;"
+                 @click="previewPhoto(it.image || it.imageUrl)"/>
+            <div v-else style="width:48px;height:48px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;border-radius:4px;color:#999;font-size:12px;">无图</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:13px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                {{ it.name }}
+                <span v-if="it.isWardrobePicked" class="wardrobe-tag">衣橱</span>
+              </div>
+              <div style="color:#999;font-size:12px;margin-top:2px;">
+                {{ it.category || '-' }} · {{ it.color || '-' }} · {{ it.shopName || '-' }}
+              </div>
+              <div style="color:#e54346;font-size:13px;font-weight:bold;margin-top:2px;">￥{{ formatPrice(it.price) }}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0;">
+              <a v-if="it.itemId" href="javascript:void(0)" class="btn-link" style="font-size:12px;"
+                 @click.stop="goItemDetail(it.itemId)">查看商品</a>
+            </div>
+          </div>
+        </div>
+        <div class="card-meta">
+          <span>入库时间：{{ o.createTime || '-' }}</span>
+          <a href="javascript:void(0)" class="btn-link" @click="goHistory">查看搭配历史 →</a>
+        </div>
+        <div class="card-actions">
+          <button class="btn-primary" @click="orderAll(o)">立即下单</button>
+          <button class="btn-secondary" @click="reorderAll(o)">一键加购整套</button>
+          <button class="btn-ghost" @click="removeItem(o.id)">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 普通单品列表（itemType=1/2/3） -->
+    <div v-if="activeTab === 'all' || activeTab === 'item'">
+      <div v-if="items.length === 0 && activeTab === 'item'" class="ai-no-data">
+        暂无单品，去 <a href="/wardrobe-upload.html" class="btn-link">添加衣橱</a>
+      </div>
+      <div class="wardrobe-grid">
+        <div v-for="w in items" :key="w.id" class="wardrobe-item-card">
+          <img :src="getItemImage(w)" :alt="w.category || '单品'"/>
+          <div class="item-info">
+            <div class="item-name">
+              <span :class="'wardrobe-type-badge t' + w.itemType">{{ typeText(w.itemType) }}</span>
+              {{ w.category || '自定义上传' }}
+            </div>
+            <div class="item-meta">
+              <span v-if="w.color">颜色：{{ w.color }}</span>
+              <span v-if="w.styleTags"> · {{ parseStyleTags(w.styleTags).join('/') }}</span>
+            </div>
+            <div v-if="w.itemId" class="item-price">商品 ID：{{ w.itemId }}</div>
+            <!-- v3.1 §9.2：itemType=2/3 暂不支持 AI 搭配召回 -->
+            <div v-if="w.itemType !== 1" class="ai-unsupported-hint" :title="'当前仅 itemType=1（单品）支持参与 AI 搭配召回'">
+              暂不支持 AI 搭配
+            </div>
+          </div>
+          <div class="item-actions">
+            <a v-if="w.itemId" href="javascript:void(0)" class="btn-link" @click="goItemDetail(w.itemId)">查看商品</a>
+            <button class="btn-link" @click="openEditor(w)">编辑</button>
+            <button class="btn-link" @click="removeItem(w.id)" style="color:#e54346;">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    list: [],   // 所有衣橱条目
+    activeTab: 'all',  // all / ai / item
+    tabs: [
+      { value: 'all', label: '全部' },
+      { value: 'ai', label: 'AI 搭配效果图' },
+      { value: 'item', label: '单品/自定义' },
+    ],
+    // 身体信息档案（性别与服装匹配 2026-07-27 新增）
+    bodyProfileList: [],
+    bodyProfileEditor: {
+      show: false,
+      id: null,
+      saving: false,
+      form: {
+        profileName: '',
+        gender: null,
+        height: null, weight: null,
+        shoulderWidth: null, bust: null, waist: null, hip: null,
+        footLength: null, footWidth: null, headCircumference: null,
+        ageRange: '', bodyType: '',
+        isDefault: 0, measuredAt: '',
+      },
+    },
+    // 衣橱条目编辑（增删改查-改，2026-08-06 新增）
+    editor: {
+      show: false,
+      id: null,
+      saving: false,
+      form: { itemType: null, category: '', color: '', styleTagsText: '', sceneDesc: '' },
+    },
+    // 穿搭类目白名单（编辑品类下拉用）
+    outfitCategoryOptions: ['上衣', '下装', '全身套装', '鞋', '帽子', '包', '配饰'],
+    // 图片预览（点击放大）
+    previewUrl: '',
+  },
+  computed: {
+    aiOutfits() {
+      return this.list.filter(w => w.itemType === 4);
+    },
+    items() {
+      return this.list.filter(w => w.itemType !== 4);
+    },
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.loadList();
+    this.loadBodyProfileList();
+  },
+  methods: {
+    formatPrice(val) { return util.formatPrice(val); },
+    // 性别与服装匹配（2026-07-27 新增）：身体信息档案管理
+    genderLabel(g) {
+      return g === 'male' ? '男' : (g === 'female' ? '女' : '中性');
+    },
+    bodyTypeLabel(t) {
+      const map = { slim: '苗条', standard: '标准', curvy: '曲线', plus: '丰满' };
+      return map[t] || t || '-';
+    },
+    ageRangeLabel(a) {
+      const map = { '18-25': '18-25岁', '26-35': '26-35岁', '36-45': '36-45岁', '46+': '46岁以上' };
+      return map[a] || a || '-';
+    },
+    loadBodyProfileList() {
+      axios.get('/body-profile').then(res => {
+        const list = Array.isArray(res) ? res : (res.data || []);
+        this.bodyProfileList = list;
+      }).catch(() => {
+        this.bodyProfileList = [];
+      });
+    },
+    openBodyProfileEditor(profile) {
+      if (profile) {
+        // 编辑：复制现有档案数据
+        this.bodyProfileEditor.id = profile.id;
+        this.bodyProfileEditor.form = {
+          profileName: profile.profileName || '',
+          gender: profile.gender || null,
+          height: profile.height || null,
+          weight: profile.weight || null,
+          shoulderWidth: profile.shoulderWidth || null,
+          bust: profile.bust || null,
+          waist: profile.waist || null,
+          hip: profile.hip || null,
+          footLength: profile.footLength || null,
+          footWidth: profile.footWidth || null,
+          headCircumference: profile.headCircumference || null,
+          ageRange: profile.ageRange || '',
+          bodyType: profile.bodyType || '',
+          isDefault: profile.isDefault || 0,
+          measuredAt: profile.measuredAt || '',
+        };
+      } else {
+        // 新增：清空表单
+        this.bodyProfileEditor.id = null;
+        this.bodyProfileEditor.form = {
+          profileName: '',
+          gender: null,
+          height: null, weight: null,
+          shoulderWidth: null, bust: null, waist: null, hip: null,
+          footLength: null, footWidth: null, headCircumference: null,
+          ageRange: '', bodyType: '',
+          isDefault: 0, measuredAt: '',
+        };
+      }
+      this.bodyProfileEditor.show = true;
+    },
+    saveBodyProfile() {
+      const f = this.bodyProfileEditor.form;
+      // 必填校验：性别 + 档案名称
+      if (!f.profileName || !f.profileName.trim()) {
+        util.toast('请填写档案名称', 'error');
+        return;
+      }
+      if (!f.gender) {
+        util.toast('请选择性别（AI 搭配必填）', 'error');
+        return;
+      }
+      if (!confirm('请确认信息填写准确，性别错误会导致 AI 搭配推荐不合适的服装。是否保存？')) {
+        return;
+      }
+      this.bodyProfileEditor.saving = true;
+      const id = this.bodyProfileEditor.id;
+      // 去除空字符串字段，避免后端校验问题
+      const payload = {...f};
+      Object.keys(payload).forEach(k => {
+        if (payload[k] === '' || payload[k] === null) delete payload[k];
+      });
+      // 保证必填字段存在
+      payload.profileName = f.profileName.trim();
+      payload.gender = f.gender;
+      payload.isDefault = f.isDefault ? 1 : 0;
+      const req = id
+        ? axios.put('/body-profile/' + id, payload)
+        : axios.post('/body-profile', payload);
+      req.then(() => {
+        util.toast(id ? '档案已更新' : '档案已登记', 'success');
+        this.bodyProfileEditor.show = false;
+        this.loadBodyProfileList();
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '保存失败';
+        util.toast(msg, 'error');
+      }).finally(() => {
+        this.bodyProfileEditor.saving = false;
+      });
+    },
+    setDefaultBodyProfile(id) {
+      axios.put('/body-profile/' + id + '/default').then(() => {
+        util.toast('已设为默认档案', 'success');
+        this.loadBodyProfileList();
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '操作失败';
+        util.toast(msg, 'error');
+      });
+    },
+    deleteBodyProfile(id) {
+      if (!confirm('确认删除该身体信息档案？删除后将无法恢复。')) return;
+      axios.delete('/body-profile/' + id).then(() => {
+        util.toast('已删除', 'success');
+        this.loadBodyProfileList();
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '删除失败';
+        util.toast(msg, 'error');
+      });
+    },
+    loadList() {
+      axios.get('/wardrobe').then(res => {
+        this.list = Array.isArray(res) ? res : [];
+      }).catch(err => {
+        util.toast('加载失败', 'error');
+      });
+    },
+    // 图片预览（点击放大）
+    previewPhoto(url) {
+      if (!url) return;
+      this.previewUrl = url;
+    },
+    countByTab(tab) {
+      if (tab === 'all') return this.list.length;
+      if (tab === 'ai') return this.aiOutfits.length;
+      if (tab === 'item') return this.items.length;
+      return 0;
+    },
+    typeText(t) {
+      const map = { 1: '单品', 2: '自定义', 3: '自拍', 4: 'AI 搭配' };
+      return map[t] || '未知';
+    },
+    getItemImage(w) {
+      if (w.itemType === 1 && w.itemId) {
+        // 单品类型，理论上 photoUrl 为空，需要商品图，但衣橱 DTO 无此字段
+        // 后端 WardrobeDTO 没有返回 image，这里用占位图
+        return w.photoUrl || './img/placeholder.png';
+      }
+      return w.photoUrl || w.outfitResultUrl || './img/placeholder.png';
+    },
+    parseStyleTags(s) {
+      if (!s) return [];
+      try { return JSON.parse(s); } catch (e) { return []; }
+    },
+    parseOutfitJson(s) {
+      if (!s) return [];
+      try {
+        const obj = JSON.parse(s);
+        return obj.items || obj || [];
+      } catch (e) { return []; }
+    },
+    removeItem(id) {
+      if (!confirm('确认删除？')) return;
+      axios.delete('/wardrobe/' + id).then(() => {
+        util.toast('已删除', 'success');
+        this.loadList();
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '删除失败';
+        util.toast(msg, 'error');
+      });
+    },
+    // 衣橱条目编辑（增删改查-改，2026-08-06 新增）
+    openEditor(w) {
+      this.editor.id = w.id;
+      this.editor.form = {
+        itemType: w.itemType,
+        category: w.category || '',
+        color: w.color || '',
+        styleTagsText: this.parseStyleTags(w.styleTags).join(','),
+        sceneDesc: w.sceneDesc || '',
+      };
+      this.editor.show = true;
+    },
+    saveEditor() {
+      const f = this.editor.form;
+      // styleTags 以 JSON 数组字符串存储，前端以逗号分隔文本展示
+      const tags = f.styleTagsText.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      const payload = {
+        itemType: f.itemType,
+        category: f.category || null,
+        color: f.color || null,
+        styleTags: tags.length > 0 ? JSON.stringify(tags) : null,
+        sceneDesc: f.sceneDesc || null,
+      };
+      this.editor.saving = true;
+      axios.put('/wardrobe/' + this.editor.id, payload).then(() => {
+        util.toast('已保存', 'success');
+        this.editor.show = false;
+        this.loadList();
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '保存失败';
+        util.toast(msg, 'error');
+      }).finally(() => {
+        this.editor.saving = false;
+      });
+    },
+    goItemDetail(itemId) {
+      location.href = '/item-detail.html?id=' + itemId;
+    },
+    goHistory() {
+      location.href = '/outfit-history.html';
+    },
+    reorderAll(o) {
+      const items = this.parseOutfitJson(o.outfitJson);
+      if (items.length === 0) {
+        util.toast('无可加购商品', 'info');
+        return;
+      }
+      // P1 修复：仅 itemId 非空的商品可加购，toast 应显示实际加购数而非总数
+      const addable = items.filter(it => it.itemId);
+      if (addable.length === 0) {
+        util.toast('无可加购商品（缺少商品 ID）', 'info');
+        return;
+      }
+      Promise.all(addable.map(it => axios.post('/carts', { itemId: it.itemId, num: 1 })))
+        .then(() => {
+          util.toast(`已加购 ${addable.length} 件商品`, 'success');
+        })
+        .catch(() => {
+          util.toast('部分商品加购失败', 'error');
+        });
+    },
+    // 立即下单：加购后直接跳转订单确认页结算（跳过购物车页）
+    orderAll(o) {
+      const items = this.parseOutfitJson(o.outfitJson);
+      const addable = items.filter(it => it.itemId);
+      if (addable.length === 0) {
+        util.toast('无可下单商品（缺少商品 ID）', 'info');
+        return;
+      }
+      Promise.all(addable.map(it => axios.post('/carts', { itemId: it.itemId, num: 1 })))
+        .then(() => {
+          util.toast('已加购，正在跳转结算...', 'success');
+          // 立即下单：携带搭配记录ID，订单提交成功后由后端标记"已下单"
+          this.goOrderConfirm(addable, { recordId: o.recordId });
+        })
+        .catch(() => {
+          util.toast('部分商品加购失败', 'error');
+        });
+    },
+    // 立即下单：把搭配单品写入结算缓存（selectedCarts）后直接跳转订单确认页
+    // order-confirm.html 从 localStorage.selectedCarts 读取 {itemId, num} 提交订单
+    goOrderConfirm(items, ctx) {
+      const selected = (items || []).filter(it => it.itemId).map(it => ({
+        itemId: it.itemId,
+        num: 1,
+        name: it.name || '',
+        image: it.image || it.imageUrl || '',
+        price: it.price != null ? it.price : (it.newPrice != null ? it.newPrice : 0),
+        stock: it.stock != null ? it.stock : 999,
+      }));
+      if (selected.length === 0) {
+        util.toast('无可下单商品（缺少商品 ID）', 'info');
+        return;
+      }
+      util.store.set('selectedCarts', selected);
+      // 携带 AI 搭配上下文：订单提交成功后 order-confirm 回传，由 trade-service 标记"已下单"
+      util.store.set('pendingOutfitOrder', ctx || null);
+      location.href = '/order-confirm.html';
+    },
+  },
+});
+</script>
+</body>
+</html>

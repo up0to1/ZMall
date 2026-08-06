@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>AI 随心搭 · 生成结果 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/ai-outfit.css"/>
+  <style>
+    /* v3.1：阶段二单品"换这个"按钮 */
+    .vton-item-row .item-replace-btn {
+      margin-left: 8px; padding: 1px 8px; font-size: 11px;
+      background: #fff; color: #ff9800; border: 1px solid #ff9800;
+      border-radius: 3px; cursor: pointer;
+    }
+    .vton-item-row .item-replace-btn:hover { background: #ff9800; color: #fff; }
+    /* Tooltip 简易实现 */
+    .btn-disabled-tip { position: relative; display: inline-block; }
+    .btn-disabled-tip:hover .tip-text { display: block; }
+    .btn-disabled-tip .tip-text {
+      display: none; position: absolute; bottom: 100%; left: 50%;
+      transform: translateX(-50%); background: #333; color: #fff;
+      padding: 6px 10px; border-radius: 4px; font-size: 12px;
+      white-space: nowrap; margin-bottom: 6px; z-index: 10;
+    }
+    .btn-disabled-tip .tip-text::after {
+      content: ''; position: absolute; top: 100%; left: 50%;
+      transform: translateX(-50%); border: 5px solid transparent; border-top-color: #333;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="ai-container">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h1 class="ai-page-title" style="margin:0;">AI 随心搭 · 生成结果</h1>
+      <a href="/outfit-agent.html" class="btn-link">← 重新搭配</a>
+    </div>
+
+    <!-- 顶部 CreditsBar -->
+    <credits-bar :balance="creditsBalance"
+                 :expiring-soon="expiringSoon"
+                 :nearest-expiry="nearestExpiry"
+                 @recharge="showRechargeDialog = true">
+    </credits-bar>
+
+    <!-- 状态横幅 -->
+    <div class="ai-section" v-if="banner" style="text-align:center;padding:14px;">
+      <div :class="bannerClass">{{ banner }}</div>
+    </div>
+
+    <!-- VTON 换装结果（一阶段直出：推荐+VTON 合并，直接展示试穿图+单品信息） -->
+    <div v-if="stage === 'vton' && outfits.length > 0" class="ai-section">
+      <h3>VTON 换装效果图
+        <span class="ai-text-muted">（共 {{ outfits.length }} 套，可满意入库或反馈调整）</span>
+      </h3>
+      <div class="vton-list">
+        <div v-for="(o, idx) in outfits" :key="idx"
+             class="vton-card"
+             :class="{selected: satisfiedIndex === idx, failed: !o.resultUrl}">
+          <img v-if="o.resultUrl" :src="o.resultUrl" :alt="'效果图 ' + (idx + 1)" class="vton-image" style="cursor:zoom-in;" @click="previewPhoto(o.resultUrl)"/>
+          <div v-else class="vton-image-placeholder">
+            <div>
+              <div style="font-size:24px;">❌</div>
+              <div>该套生成失败</div>
+            </div>
+          </div>
+          <div class="vton-info">
+            <div class="vton-header">
+              <span class="vton-title">搭配 {{ idx + 1 }}</span>
+              <label class="vton-select-box" v-if="o.resultUrl">
+                <input type="radio" :value="idx" v-model="satisfiedIndex"/> 选择此套
+              </label>
+            </div>
+            <div class="vton-items">
+              <div v-for="(it, i) in o.items" :key="i" class="vton-item-row" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f5f5f5;">
+                <img :src="it.image" :alt="it.name" v-if="it.image"
+                     style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;"/>
+                <div v-else style="width:48px;height:48px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;border-radius:4px;color:#999;font-size:12px;">无图</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:13px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    {{ it.name }}
+                    <span v-if="it.source" class="wardrobe-tag" :title="sourceLabel(it)"
+                          style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;">{{ sourceLabel(it) }}</span>
+                  </div>
+                  <div style="color:#999;font-size:12px;margin-top:2px;">
+                    {{ it.category || '-' }} · {{ it.color || '-' }} · {{ it.shopName || '-' }}
+                  </div>
+                  <div style="color:#e54346;font-size:13px;font-weight:bold;margin-top:2px;">￥{{ formatPrice(it.price) }}</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0;">
+                  <button v-if="!accepted && !submitting && canFeedback"
+                          class="item-replace-btn"
+                          @click.stop="openPickReplace(idx, i)">换这个</button>
+                  <a v-if="it.itemId" href="javascript:void(0)" class="btn-link" style="font-size:12px;"
+                     @click.stop="goItemDetail(it.itemId)">查看商品</a>
+                </div>
+              </div>
+            </div>
+            <div class="vton-total">
+              <span>套装总价</span>
+              <span class="total-price">￥{{ formatPrice(sumPrice(o)) }}</span>
+            </div>
+            <div class="vton-watermark" v-if="o.isPartialFailure">⚠ 部分单品 VTON 失败，已用商品图兜底</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 满意度操作栏 -->
+      <div style="margin-top:24px;padding:16px;background:#fafafa;border-radius:8px;">
+        <div style="font-size:14px;color:#666;margin-bottom:12px;">
+          当前搭配 {{ satisfiedIndex === null ? '未选' : (satisfiedIndex + 1) }}
+          <span v-if="attitude === 'satisfied'" style="color:#67c23a;margin-left:8px;">✓ 已满意</span>
+          <span v-if="attitude === 'unsatisfied'" style="color:#909399;margin-left:8px;">已标记不满意</span>
+        </div>
+
+        <!-- 主操作区：满意或未表态时显示加购/下单；不满意时显示反馈/重新搭配 -->
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+          <!-- 满意或未表态：加购/下单 -->
+          <template v-if="attitude !== 'unsatisfied'">
+            <button class="btn-primary" :disabled="satisfiedIndex === null || submitting" @click="handleAction('cart')">
+              加购整套
+            </button>
+            <button class="btn-primary" :disabled="satisfiedIndex === null || submitting" @click="handleAction('order')">
+              立即下单
+            </button>
+          </template>
+          <!-- 不满意：反馈调整 + 重新搭配 -->
+          <template v-else>
+            <button v-if="canFeedback" class="btn-primary" @click="openFeedback">
+              💬 反馈调整（第 {{ round }} / {{ maxRounds }} 轮）
+            </button>
+            <a href="/outfit-agent.html" class="btn-ghost">重新搭配</a>
+          </template>
+        </div>
+
+        <!-- 表态区：满意/不满意 toggle（可反复切换） -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <span style="font-size:13px;color:#999;">表态：</span>
+          <button class="btn-link" :disabled="satisfiedIndex === null"
+                  :style="attitude === 'satisfied' ? 'color:#67c23a;font-weight:bold;' : 'color:#67c23a;'"
+                  @click="toggleSatisfied">
+            {{ attitude === 'satisfied' ? '✓ 满意' : '满意' }}
+          </button>
+          <button class="btn-link" :disabled="satisfiedIndex === null"
+                  :style="attitude === 'unsatisfied' ? 'color:#909399;font-weight:bold;' : 'color:#909399;'"
+                  @click="toggleUnsatisfied">
+            {{ attitude === 'unsatisfied' ? '✓ 不满意' : '不满意' }}
+          </button>
+        </div>
+
+        <div class="form-hint" style="margin-top:8px;">
+          <span v-if="attitude === 'none'">可直接加购/下单，或表态后操作（满意写入衣橱，不满意可反馈调整）</span>
+          <span v-else-if="attitude === 'satisfied'">满意搭配：加购/下单将调 accept 接口，效果图写入"我的衣橱"和"搭配历史"</span>
+          <span v-else>不满意搭配：可反馈调整重新生成（每轮扣 credits），或重新搭配开始新会话</span>
+          <br v-if="canFeedback && attitude === 'unsatisfied'">反馈调整每轮扣 credits（同会话最多 {{ maxRounds }} 轮）
+        </div>
+      </div>
+    </div>
+
+    <!-- 已采纳成功提示 -->
+    <div v-if="accepted" class="ai-section" style="text-align:center;padding:32px;">
+      <div style="font-size:48px;">✅</div>
+      <h3 style="color:#67c23a;border:none;margin:16px 0 8px;">{{ acceptedMsg }}</h3>
+      <p class="ai-text-muted">效果图已加入"我的衣橱"和"搭配历史"</p>
+      <div v-if="acceptedAction === 'cart'" style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <a href="/cart.html" class="btn-primary">查看购物车</a>
+        <a href="/wardrobe.html" class="btn-ghost">查看我的衣橱</a>
+        <a href="/outfit-history.html" class="btn-ghost">查看搭配历史</a>
+        <a href="/outfit-agent.html" class="btn-ghost">再来一次</a>
+      </div>
+      <div v-else style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <a href="/order.html" class="btn-primary">查看订单</a>
+        <a href="/wardrobe.html" class="btn-ghost">查看我的衣橱</a>
+        <a href="/outfit-history.html" class="btn-ghost">查看搭配历史</a>
+        <a href="/outfit-agent.html" class="btn-ghost">再来一次</a>
+      </div>
+    </div>
+
+    <!-- 失败提示 -->
+    <div v-if="failed" class="ai-section" style="text-align:center;padding:32px;">
+      <div style="font-size:48px;">⚠</div>
+      <h3 style="color:#e54346;border:none;margin:16px 0 8px;">生成失败</h3>
+      <p class="ai-text-muted">{{ errorMsg }}</p>
+      <div style="margin-top:24px;">
+        <a href="/outfit-agent.html" class="btn-primary">重新搭配</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- P0-1 尺码确认弹窗（US-AT-48）-->
+  <div v-if="showSizeDialog" class="modal-mask" @click.self="showSizeDialog = false">
+    <div class="modal-box" style="max-width:680px;">
+      <div class="modal-header">
+        <h3>尺码确认（{{ sizeDialogAction === 'cart' ? '加购整套' : '立即下单' }}）</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;max-height:60vh;overflow-y:auto;">
+        <div v-if="sizeDialogLoading" style="text-align:center;padding:40px 0;color:#999;">
+          正在根据您的身体档案推荐尺码...
+        </div>
+        <div v-else>
+          <div style="font-size:13px;color:#666;margin-bottom:12px;">
+            基于身体档案（身高 {{ bodyProfile && bodyProfile.height }}cm /
+            体重 {{ bodyProfile && bodyProfile.weight }}kg）推荐如下尺码，可手动调整：
+          </div>
+          <div v-for="it in (outfits[satisfiedIndex] || {}).items || []" :key="it.itemId"
+               style="display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid #f0f0f0;">
+            <img :src="it.image" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:4px;"/>
+            <div style="flex:1;font-size:13px;">
+              <div style="font-weight:500;">{{ it.name }}</div>
+              <div style="color:#999;font-size:12px;">
+                <span v-if="sizeRecommendMap[it.itemId]">
+                  推荐尺码：<strong style="color:#f57c00;">{{ sizeRecommendMap[it.itemId].recommendedSize }}</strong>
+                  <span v-if="sizeRecommendMap[it.itemId].confidence">
+                    （置信度 {{ Math.round(sizeRecommendMap[it.itemId].confidence * 100) }}%）
+                  </span>
+                </span>
+                <span v-else style="color:#999;">无推荐尺码，请手动选择</span>
+              </div>
+            </div>
+            <select v-model="userSizeChoices[it.itemId]" class="form-input" style="width:100px;">
+              <option value="">不选</option>
+              <option v-if="sizeRecommendMap[it.itemId] && sizeRecommendMap[it.itemId].recommendedSize"
+                      :value="sizeRecommendMap[it.itemId].recommendedSize">
+                {{ sizeRecommendMap[it.itemId].recommendedSize }}（推荐）
+              </option>
+              <option v-for="alt in (sizeRecommendMap[it.itemId] || {}).alternatives || []"
+                      :key="alt.size" :value="alt.size">
+                {{ alt.size }}
+              </option>
+              <option value="S">S</option>
+              <option value="M">M</option>
+              <option value="L">L</option>
+              <option value="XL">XL</option>
+              <option value="XXL">XXL</option>
+              <option value="均码">均码</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" @click="showSizeDialog = false">取消</button>
+        <button class="btn-confirm" :disabled="sizeDialogLoading" @click="confirmSizeAndAccept">
+          确认尺码并{{ sizeDialogAction === 'cart' ? '加购' : '下单' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 充值对话框 -->
+  <recharge-dialog :show="showRechargeDialog"
+                   :current-balance="creditsBalance"
+                   :wallet-balance="walletBalance"
+                   :first-gift-received="firstGiftReceived"
+                   @close="showRechargeDialog = false"
+                   @recharged="onRecharged">
+  </recharge-dialog>
+
+  <!-- 多轮反馈对话框 -->
+  <feedback-dialog :show="showFeedbackDialog"
+                   :task-id="taskId"
+                   :outfits="outfits"
+                   :round="round"
+                   :max-rounds="maxRounds"
+                   :preset-outfit-index="presetOutfitIndex"
+                   :preset-item-index="presetItemIndex"
+                   @close="closeFeedback"
+                   @submitted="onFeedbackSubmitted">
+  </feedback-dialog>
+
+  <!-- 图片预览模态框（点击放大查看） -->
+  <div v-if="previewUrl" class="modal-mask" @click.self="closePreview"
+       style="display:flex;align-items:center;justify-content:center;z-index:9999;">
+    <div style="position:relative;max-width:90vw;max-height:90vh;">
+      <img :src="previewUrl" alt="预览"
+           style="max-width:90vw;max-height:90vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.3);"/>
+      <button @click="closePreview"
+              style="position:absolute;top:-12px;right:-12px;width:36px;height:36px;border-radius:50%;background:#fff;border:none;box-shadow:0 2px 8px rgba(0,0,0,0.2);cursor:pointer;font-size:18px;color:#666;">×</button>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script src="./js/components/credits-bar.js"></script>
+<script src="./js/components/recharge-dialog.js"></script>
+<script src="./js/components/feedback-dialog.js"></script>
+<script src="./js/components/ai-outfit-ws.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    taskId: '',
+    stage: '',                 // 当前实际 stage：recommend / vton / ''
+    outfits: [],
+    selectedIndexes: [],       // 阶段一选定的索引（0/1/2 子集）
+    satisfiedIndex: null,      // 阶段二满意的搭配索引
+    parentTaskId: '',          // 阶段二关联的阶段一 taskId
+    round: 1,                  // 候选推荐轮次（反馈轮次累计）
+    vtonSelectCount: 0,        // /select 调用次数（前端自维护，替代 vtonRetryCount）
+    maxRounds: 3,              // 候选推荐最大轮次
+    maxVtonRetries: 2,         // VTON 重试最大次数
+
+    // 状态
+    submitting: false,
+    accepted: false,
+    acceptedMsg: '',
+    acceptedAction: '',
+    failed: false,
+    errorMsg: '',
+    attitude: 'none',           // 用户对当前搭配的态度：'none'/'satisfied'/'unsatisfied'
+    previewUrl: '',             // 图片预览模态框 URL（空时不显示）
+    timeouts: [],               // setTimeout 引用（cleanup 时统一清除）
+
+    // credits
+    creditsBalance: 0,
+    expiringSoon: 0,
+    nearestExpiry: '',
+    firstGiftReceived: false,
+    walletBalance: 0,
+    showRechargeDialog: false,
+
+    // 多轮反馈对话框
+    showFeedbackDialog: false,
+    presetOutfitIndex: null,
+    presetItemIndex: null,
+
+    // WS / 轮询
+    ws: null,
+    poller: null,
+    loading: null,
+
+    // P0-1 尺码推荐（US-AT-48）：用户身体档案 + 推荐结果弹窗
+    bodyProfile: null,           // 用户身体信息档案（用于尺码推荐）
+    showSizeDialog: false,       // 尺码确认弹窗
+    sizeRecommendMap: {},        // {itemId: {recommendedSize, confidence, alternatives, reason}}
+    sizeDialogLoading: false,    // 弹窗加载中
+    sizeDialogAction: '',        // 弹窗确认后的动作 'cart' / 'order'
+    userSizeChoices: {},         // 用户在弹窗中修改后的尺码 {itemId: 'L'}
+  },
+  computed: {
+    userId() { return util.getUserId(); },
+    hasUserPhoto() { return util.hasUserPhoto(); },  // 场景 B 判定
+    banner() {
+      if (this.accepted) return '';
+      if (this.failed) return '';
+      if (this.submitting) return 'AI 正在生成换装效果图...';
+      if (this.stage === 'vton' && this.outfits.length > 0) return '已生成换装效果图，请选择满意搭配';
+      return '加载中...';
+    },
+    bannerClass() {
+      if (this.submitting) return 'ai-text-warning';
+      return 'ai-text-success';
+    },
+
+    // 多轮反馈可用性（一阶段直出后仍可用反馈调整单品）
+    canFeedback() {
+      if (this.accepted || this.failed) return false;
+      if (this.submitting) return false;
+      return this.round < this.maxRounds;
+    },
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.taskId = util.getUrlParam('taskId');
+    // 一阶段直出：stage 恒为 vton
+    this.stage = util.getUrlParam('stage') || 'vton';
+    if (!this.taskId) {
+      util.toast('缺少 taskId', 'error');
+      setTimeout(() => location.href = '/outfit-agent.html', 1500);
+      return;
+    }
+    this.loadCredits();
+    this.startListen();
+    // P0-1 尺码推荐：加载用户身体档案（用于 accept 时调 /items/size-chart/recommend-batch）
+    this.loadBodyProfile();
+  },
+  beforeDestroy() {
+    this.cleanup();
+  },
+  methods: {
+    formatPrice(val) { return util.formatPrice(val); },
+    // 单品来源标签：
+    // - 用户选定：衣橱/购物车/订单（细分来源）；搜索添加的单品来自平台店铺 → 店铺
+    // - 风格驱动：全平台 / 指定店铺
+    sourceText(s) {
+      const map = {
+        wardrobe: '衣橱', cart: '购物车', order: '订单', search: '店铺',
+        platform: '全平台', shop: '店铺',
+      };
+      return map[s] || s || '';
+    },
+    // 来源标签展示：全平台/指定店铺的单品显示具体店铺名，其余显示来源文本
+    sourceLabel(it) {
+      const s = it.source;
+      if ((s === 'shop' || s === 'platform') && it.shopName) {
+        return '店铺：' + it.shopName;
+      }
+      return this.sourceText(s);
+    },
+    // 图片预览（点击放大查看）
+    previewPhoto(url) {
+      if (!url) return;
+      this.previewUrl = url;
+    },
+    closePreview() {
+      this.previewUrl = '';
+    },
+    sumPrice(o) {
+      return (o.items || []).reduce((s, it) => s + (Number(it.price) || 0), 0);
+    },
+    countShops(o) {
+      const ids = (o.items || []).map(it => it.shopId).filter(x => x != null);
+      return Array.from(new Set(ids)).length;
+    },
+    loadCredits() {
+      axios.get('/credits/balance/' + this.userId).then(res => {
+        this.creditsBalance = res.balance || 0;
+        this.expiringSoon = res.expiringSoon || 0;
+        this.nearestExpiry = res.nearestExpiry || '';
+        this.firstGiftReceived = !!res.firstGiftReceived;
+        // P1-7 修复：1 元 = 5 credits，即 1 credit = 0.2 元 = 20 分（原 * 100 放大 5 倍）
+        this.walletBalance = res.walletBalance || 0;  // 真实 user.balance（分）
+      }).catch(() => {});
+    },
+    onRecharged() { this.loadCredits(); },
+    refreshCreditsAfterDeduct() {
+      // 扣费后刷新余额（接口/WS 均不携带 creditsBalance）
+      this.loadCredits();
+    },
+
+    // 启动 WS + 轮询兜底
+    startListen() {
+      // P2 修复：切换 taskId 后先清空旧 WS/Poller/定时器，避免旧连接误触
+      this.cleanup();
+      const self = this;
+      // 先尝试拉一次结果（任务恢复机制：刷新页面时从 Redis 恢复状态）
+      axios.get('/v1/outfit/agent/result/' + this.taskId).then(res => {
+        self.applyResult(res);
+        // 若仍在 PROCESSING，启动 WS+轮询
+        if (!self.accepted && !self.failed && self.outfits.length === 0) {
+          self.startWS();
+        }
+      }).catch(() => {
+        self.startWS();
+      });
+    },
+    startWS() {
+      const self = this;
+      this.ws = new AiOutfitWS(this.userId, this.taskId, {
+        onMessage(msg) { self.handleMessage(msg); },
+        onClose() { self.startPolling(); },
+      });
+      this.ws.connect();
+      // 10s 兜底：WS 可能错过消息（任务在 WS 连接前就失败了），短轮询兜底
+      this.timeouts.push(setTimeout(() => {
+        if (self.outfits.length === 0 && !self.accepted && !self.failed) {
+          self.startPolling();
+        }
+      }, 10000));
+    },
+    startPolling() {
+      if (this.poller) return;
+      const self = this;
+      this.poller = new AiOutfitPoller(this.taskId, {
+        onResult(res) { self.applyResult(res); },
+        onTimeout() {
+          if (self.outfits.length === 0 && !self.failed) {
+            self.failed = true;
+            self.errorMsg = '生成超时，请稍后重试';
+          }
+        },
+        onNotFound() {
+          self.failed = true;
+          self.errorMsg = '任务不存在或已过期';
+        },
+      });
+      this.poller.start();
+    },
+    handleMessage(msg) {
+      if (!msg) return;
+      console.log('[WS] type=' + msg.type + ', status=' + msg.status + ', taskId=' + (msg.taskId || 'N/A'));
+      switch (msg.type) {
+        case 'OUTFIT_RECOMMEND_RESULT':
+        case 'OUTFIT_VTON_RESULT':
+        case 'OUTFIT_AGENT':
+          this.applyResult(msg);
+          break;
+        case 'OUTFIT_ACCEPTED':
+          this.applyAccepted(msg);
+          break;
+        case 'OUTFIT_AGENT_FEEDBACK':
+          // 反馈轮 action=accept 直接采纳
+          if (msg.status === 'ACCEPTED') this.applyAccepted(msg);
+          else this.applyResult(msg);
+          break;
+      }
+    },
+    applyResult(res) {
+      if (!res || !res.status) return;
+      if (res.status === 'PROCESSING') return;
+      if (res.status === 'FAILED') {
+        this.failed = true;
+        this.errorMsg = res.errorMsg || res.msg || '生成失败';
+        this.cleanup();
+        return;
+      }
+      if (res.status === 'SUCCESS' || res.status === 'ACCEPTED') {
+        // 页面刷新恢复：后端 accept 后 status 仍为 SUCCESS 但 accepted=true
+        if (res.accepted) {
+          this.applyAccepted({
+            msg: '已采纳（' + (res.acceptedAction === 'cart' ? '加入购物车' : '进入下单流程') + '）',
+            // P2 修复：后端推送字段是 outfitIndex，不存在 acceptedOutfitIndex（原读取恒为 undefined）
+            outfitIndex: res.outfitIndex !== undefined ? res.outfitIndex : this.satisfiedIndex,
+            acceptedAction: res.acceptedAction || '',
+          });
+          return;
+        }
+        this.outfits = res.outfits || [];
+        // v3.1 任务恢复：从响应中恢复 stage / parentTaskId / selectedOutfitIndexes / round
+        if (res.stage) this.stage = res.stage;
+        if (res.parentTaskId) this.parentTaskId = res.parentTaskId;
+        if (res.selectedOutfitIndexes && res.selectedOutfitIndexes.length) {
+          this.selectedIndexes = [...res.selectedOutfitIndexes];
+        }
+        if (typeof res.round === 'number' && res.round > 0) {
+          this.round = res.round;
+        }
+        if (res.creditsConsumed) this.refreshCreditsAfterDeduct();
+        this.cleanup();
+      }
+    },
+    applyAccepted(msg) {
+      this.accepted = true;
+      this.acceptedMsg = msg.msg || ('已采纳（' + (msg.acceptedAction === 'cart' ? '加入购物车' : '进入下单流程') + '）');
+      this.acceptedAction = msg.acceptedAction || '';
+      this.satisfiedIndex = msg.outfitIndex;
+      // 立即下单（满意态 accept-order）：accept 成功后直接跳转订单确认页结算（跳过购物车页）
+      if (this._pendingOrderJump != null && msg.acceptedAction === 'order') {
+        const idx = this._pendingOrderJump;
+        this._pendingOrderJump = null;
+        const items = ((this.outfits || [])[idx] || {}).items || [];
+        const addable = items.filter(it => it.itemId);
+        if (addable.length > 0) {
+          this.goOrderConfirm(addable);
+        }
+      }
+      this.cleanup();
+      this.loadCredits();
+    },
+    cleanup() {
+      if (this.ws) { this.ws.close(); this.ws = null; }
+      if (this.poller) { this.poller.stop(); this.poller = null; }
+      this.timeouts.forEach(id => clearTimeout(id));
+      this.timeouts = [];
+    },
+
+    // 跳转商品详情页
+    goItemDetail(itemId) {
+      if (itemId) location.href = '/item-detail.html?id=' + itemId;
+    },
+
+    // 满意 toggle：点击切换满意/取消满意（可反复切换）
+    // 标记满意即写入衣橱（无需等加购/下单）；取消满意则从衣橱移除
+    toggleSatisfied() {
+      if (this.satisfiedIndex === null) {
+        util.toast('请先选择一套搭配', 'warning');
+        return;
+      }
+      if (this.attitude === 'satisfied') {
+        // 已满意 → 取消，回到未表态；从衣橱移除该搭配条目
+        this.attitude = 'none';
+        this.removeWardrobeByTask();
+        util.toast('已取消满意标记，搭配已从衣橱移除', 'info');
+      } else {
+        // 切换为满意 → 立即写入衣橱（saved 动作，无需等加购/下单）
+        this.attitude = 'satisfied';
+        this.markSatisfied('saved');
+        util.toast('已标记满意，搭配已加入衣橱', 'success');
+      }
+    },
+
+    // 不满意 toggle：点击切换不满意/取消不满意（可反复切换）
+    // 不满意时弹出反馈对话框（可关闭，关闭后保持不满意状态）
+    toggleUnsatisfied() {
+      if (this.satisfiedIndex === null) {
+        util.toast('请先选择一套搭配', 'warning');
+        return;
+      }
+      if (this.attitude === 'unsatisfied') {
+        // 已不满意 → 取消，回到未表态
+        this.attitude = 'none';
+        util.toast('已取消不满意标记', 'info');
+      } else {
+        // 切换为不满意 → 弹出反馈对话框；若已写入衣橱则从衣橱移除
+        this.attitude = 'unsatisfied';
+        this.removeWardrobeByTask();
+        if (this.canFeedback) {
+          // 还有反馈轮次 → 打开 feedback-dialog（用户可填写或关闭）
+          this.presetOutfitIndex = null;
+          this.presetItemIndex = null;
+          this.showFeedbackDialog = true;
+        } else {
+          // 反馈轮次已用尽 → 仅提示，按钮区已切换为反馈/重新搭配
+          util.toast('已标记不满意，反馈轮次已用尽，可重新搭配开始新会话', 'info');
+        }
+      }
+    },
+
+    // 满意/不满意状态切换后：按 taskId + outfitIndex 删除衣橱中该搭配的效果图条目（item_type=4）
+    // 删除接口幂等：记录不存在或衣橱无条目时无副作用
+    removeWardrobeByTask() {
+      axios.delete('/items/outfit/wardrobe/by-task', {
+        params: { taskId: this.taskId, outfitIndex: this.satisfiedIndex },
+      }).catch(() => {});
+    },
+
+    // 统一处理加购/下单动作（根据 attitude 走不同分支）
+    // 满意 → accept（写衣橱）；未表态 → directAction（仅加购，提示可标记满意）
+    async handleAction(action) {
+      if (this.satisfiedIndex === null) {
+        util.toast('请先选择搭配', 'warning');
+        return;
+      }
+      if (this.attitude === 'satisfied') {
+        // 满意 → 走原 accept 流程（含尺码弹窗，写衣橱）
+        await this.accept(action);
+      } else if (this.attitude === 'none') {
+        // 未表态 → 直接加购商品，不走 accept（不写衣橱）
+        await this.directAction(action);
+      }
+      // attitude === 'unsatisfied' 时按钮区不显示加购/下单，不会进入此分支
+    },
+
+    // 未表态时的直接加购/下单（不走 accept 接口，不写衣橱）
+    async directAction(action) {
+      const actionText = action === 'cart' ? '加购整套' : '立即下单';
+      const items = (this.outfits[this.satisfiedIndex] || {}).items || [];
+      const addable = items.filter(it => it.itemId);
+      if (addable.length === 0) {
+        util.toast('无可加购商品（缺少商品 ID）', 'info');
+        return;
+      }
+      this.submitting = true;
+      try {
+        await Promise.all(addable.map(it => axios.post('/carts', { itemId: it.itemId, num: 1 })));
+        if (action === 'cart') {
+          // 加购成功 → 标记满意并写入衣橱（item_type=4 AI 搭配效果图）
+          await this.markSatisfied(action);
+          util.toast(`已加购 ${addable.length} 件商品`, 'success');
+        } else {
+          // 立即下单：暂不标记记录状态（订单提交成功后由后端标记"已下单"），
+          // 加购后直接跳转订单确认页结算（跳过购物车页）
+          this.goOrderConfirm(addable);
+        }
+      } catch (err) {
+        util.toast('部分商品操作失败', 'error');
+      } finally {
+        this.submitting = false;
+      }
+    },
+    // 立即下单：把搭配单品写入结算缓存（selectedCarts）后直接跳转订单确认页
+    // order-confirm.html 从 localStorage.selectedCarts 读取 {itemId, num} 提交订单
+    goOrderConfirm(items) {
+      const selected = (items || []).filter(it => it.itemId).map(it => ({
+        itemId: it.itemId,
+        num: 1,
+        name: it.name || '',
+        image: it.image || it.imageUrl || '',
+        price: it.price != null ? it.price : (it.newPrice != null ? it.newPrice : 0),
+        stock: it.stock != null ? it.stock : 999,
+      }));
+      if (selected.length === 0) {
+        util.toast('无可下单商品（缺少商品 ID）', 'info');
+        return;
+      }
+      util.store.set('selectedCarts', selected);
+      // 携带 AI 搭配上下文：订单提交成功后 order-confirm 回传，由 trade-service 标记"已下单"
+      util.store.set('pendingOutfitOrder', { taskId: this.taskId, outfitIndex: this.satisfiedIndex });
+      location.href = '/order-confirm.html';
+    },
+
+    // 加购/下单成功后标记满意并写入衣橱（记录已存在时复用原 outfitJson，避免覆盖）
+    // 后端 createRecord 检测 accepted=1 自动写衣橱
+    async markSatisfied(action) {
+      if (this.satisfiedIndex === null) return;
+      try {
+        const rec = await axios.get('/items/outfit/records/by-task', {
+          params: { taskId: this.taskId, outfitIndex: this.satisfiedIndex },
+        }).catch(() => null);
+        const outfit = this.outfits[this.satisfiedIndex] || {};
+        const outfitJson = (rec && rec.outfitJson)
+          ? rec.outfitJson
+          : JSON.stringify({ items: outfit.items || [], resultUrl: outfit.resultUrl || '' });
+        await axios.post('/items/outfit/records', {
+          taskId: this.taskId,
+          userId: this.userId,
+          outfitIndex: this.satisfiedIndex,
+          outfitJson: outfitJson,
+          vtonResultUrl: (rec && rec.vtonResultUrl) || outfit.resultUrl || null,
+          modelImageSource: (rec && rec.modelImageSource) || null,
+          acceptedAction: action,
+          accepted: 1,
+          creditsConsumed: (rec && rec.creditsConsumed) || 0,
+        });
+      } catch (e) {
+        // 写衣橱失败不阻塞加购/下单
+        console.warn('[markSatisfied] 标记满意写衣橱失败', e);
+      }
+    },
+
+    // 满意入库（原 accept 逻辑保留，仅被 handleAction 调用）
+    async accept(action) {
+      if (this.satisfiedIndex === null) {
+        util.toast('请先选择满意搭配', 'warning');
+        return;
+      }
+      // P0-1 尺码推荐（US-AT-48）：调 /items/size-chart/recommend-batch 拉推荐尺码
+      // 弹窗让用户确认/修改尺码后再调 accept
+      const items = (this.outfits[this.satisfiedIndex] || {}).items || [];
+      const itemIds = items.map(it => it.itemId).filter(id => id != null);
+      if (this.bodyProfile && itemIds.length > 0) {
+        this.sizeDialogAction = action;
+        this.sizeDialogLoading = true;
+        this.showSizeDialog = true;
+        this.sizeRecommendMap = {};
+        this.userSizeChoices = {};
+        try {
+          const res = await axios.post('/items/size-chart/recommend-batch', {
+            bodyProfile: this.bodyProfile,
+            itemIds: itemIds,
+          });
+          this.sizeRecommendMap = res || {};
+          // 默认采用推荐尺码
+          items.forEach(it => {
+            const r = this.sizeRecommendMap[it.itemId];
+            this.userSizeChoices[it.itemId] = r ? r.recommendedSize : '';
+          });
+        } catch (e) {
+          util.toast('尺码推荐获取失败，将使用默认尺码', 'warning');
+          this.showSizeDialog = false;
+        } finally {
+          this.sizeDialogLoading = false;
+        }
+        // 弹窗打开，等用户点确认后调 confirmSizeAndAccept
+        return;
+      }
+      // 无身体档案或无 itemIds，直接走原流程
+      await this.doAccept(action, {});
+    },
+
+    // P0-1：用户在尺码弹窗中确认后调用
+    async confirmSizeAndAccept() {
+      const action = this.sizeDialogAction;
+      const sizeMap = { ...this.userSizeChoices };
+      this.showSizeDialog = false;
+      await this.doAccept(action, sizeMap);
+    },
+
+    // P0-1：实际调 accept 接口
+    async doAccept(action, sizeMap) {
+      const actionText = action === 'cart' ? '加购整套' : '立即下单';
+      if (!confirm(`确认${actionText}？效果图将入库"我的衣橱"和"搭配历史"`)) return;
+      this.submitting = true;
+      // 立即下单（满意态 accept-order）：accept 成功后直接跳转订单确认页结算（跳过购物车页）
+      this._pendingOrderJump = (action === 'order') ? this.satisfiedIndex : null;
+      try {
+        const res = await axios.post('/v1/outfit/agent/accept', {
+          taskId: this.taskId,
+          outfitIndex: this.satisfiedIndex,
+          acceptedAction: action,
+          sizeMap: sizeMap,    // P0-1 新增：推荐尺码映射（可为空对象）
+        }, { timeout: 120000 });
+        // 优先使用 HTTP 同步响应更新 UI（WS 推送作为二次确认，幂等）
+        if (res && (res.status === 'ACCEPTED' || res.accepted)) {
+          this.applyAccepted({
+            msg: action === 'cart' ? '已采纳并加入购物车' : '已采纳并加入下单流程',
+            outfitIndex: this.satisfiedIndex,
+            acceptedAction: action,
+          });
+        } else {
+          // HTTP 响应未确认，兜底：5s 内未收到 WS 推送，主动查一次
+          this.timeouts.push(setTimeout(() => {
+            if (!this.accepted) {
+              axios.get('/v1/outfit/agent/result/' + this.taskId).then(res2 => {
+                if (res2.data.status === 'ACCEPTED' || res2.data.accepted) {
+                  this.applyAccepted({
+                    msg: action === 'cart' ? '已采纳并加入购物车' : '已采纳并加入下单流程',
+                    outfitIndex: this.satisfiedIndex,
+                    acceptedAction: action,
+                  });
+                }
+              }).catch(() => {});
+            }
+          }, 5000));
+        }
+      } catch (err) {
+        this.handleActionError(err);
+      } finally {
+        this.submitting = false;
+      }
+    },
+
+    // P0-1：加载用户身体档案（参考 outfit-agent.html 的 loadBodyProfileList）
+    loadBodyProfile() {
+      axios.get('/body-profile').then(res => {
+        const list = Array.isArray(res) ? res : (res.data || []);
+        if (list.length > 0) {
+          this.bodyProfile = list.find(p => p.isDefault === 1) || list[0];
+        }
+      }).catch(() => {});
+    },
+
+    // 多轮反馈对话框
+    openFeedback() {
+      this.presetOutfitIndex = null;
+      this.presetItemIndex = null;
+      this.showFeedbackDialog = true;
+    },
+    openPickReplace(outfitIdx, itemIdx) {
+      // 点哪换哪：从单品"换这个"按钮触发
+      this.presetOutfitIndex = outfitIdx;
+      this.presetItemIndex = itemIdx;
+      this.showFeedbackDialog = true;
+    },
+    closeFeedback() {
+      this.showFeedbackDialog = false;
+      this.presetOutfitIndex = null;
+      this.presetItemIndex = null;
+    },
+    onFeedbackSubmitted(res) {
+      util.toast('反馈已提交，正在调整搭配...', 'success');
+      // 反馈轮 taskId 不变（同会话内），重新启动监听
+      this.outfits = [];
+      this.selectedIndexes = [];
+      this.satisfiedIndex = null;
+      this.attitude = 'none';   // 新一轮重置态度，按钮回到第一层
+      this.round++;
+      this.submitting = true;  // 立即禁用按钮
+      this.startListen();
+      // 5s 后若仍无结果，解除 submitting（防止卡死）
+      this.timeouts.push(setTimeout(() => {
+        if (this.outfits.length === 0) this.submitting = false;
+      }, 5000));
+    },
+
+    // 同步 URL（便于刷新恢复 stage）
+    updateUrl(params) {
+      const url = new URL(location.href);
+      Object.keys(params).forEach(k => {
+        if (params[k] !== null && params[k] !== undefined) {
+          url.searchParams.set(k, params[k]);
+        }
+      });
+      history.replaceState({}, '', url.toString());
+    },
+
+    handleActionError(err) {
+      const status = err.response && err.response.status;
+      const data = err.response && err.response.data || {};
+      if (status === 429) {
+        // 并发限流（正在处理采纳/反馈）：全局拦截器已弹窗，此处不重复弹
+        console.warn('[429并发限流] URL=' + (err.config && err.config.url) + ', detail=' + (data.detail || ''));
+      } else if (status === 403) {
+        this.showRechargeDialog = true;
+      } else if (status === 404) {
+        util.toast(data.detail || data.msg || '任务不存在或已过期，请重新搭配', 'error');
+        setTimeout(() => location.href = '/outfit-agent.html', 2000);
+      } else if (status === 409) {
+        util.toast(data.detail || data.msg || '任务尚未完成或已采纳，请稍候', 'warning');
+      } else if (status === 400) {
+        util.toast(data.detail || data.msg || '请求参数错误', 'error');
+      } else {
+        util.toast(data.msg || data.detail || '操作失败', 'error');
+      }
+    },
+  },
+});
+</script>
+</body>
+</html>

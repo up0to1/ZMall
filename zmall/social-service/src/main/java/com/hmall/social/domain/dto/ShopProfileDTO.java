@@ -21,4 +21,13 @@ public class ShopProfileDTO {
     private String contactPhone;
     @ApiModelProperty("店铺地址")
     private String address;
+
+    @ApiModelProperty("当前发货地（如 广东深圳，来自 shop_address 表 is_default=1 的记录）")
+    private String currentShipFrom;
+
+    @ApiModelProperty("钱包余额（单位：分，由前端调用 /credits/balance 接口填充）")
+    private Integer walletBalance;
+
+    @ApiModelProperty("Credits 余额（由前端调用 /credits/balance 接口填充）")
+    private Integer creditsBalance;
 }

@@ -8,6 +8,7 @@ import com.hmall.common.service.FileStorageStrategy;
 import com.hmall.common.utils.UserContext;
 import com.hmall.api.dto.ShopFeedDTO;
 import com.hmall.social.domain.dto.ShopProfileDTO;
+import com.hmall.social.domain.dto.ShopSimpleDTO;
 import com.hmall.social.domain.dto.FeedScrollDTO;
 import com.hmall.social.service.IShopService;
 import io.swagger.annotations.Api;
@@ -120,6 +121,12 @@ public class ShopController {
             @RequestParam(value = "size", defaultValue = "12") int size) {
         Long userId = UserContext.getUser();
         return shopService.queryFollowList(userId, page, size);
+    }
+
+    @ApiOperation("前台-查询所有店铺列表（下拉选择）")
+    @GetMapping("/list")
+    public List<ShopSimpleDTO> listShops() {
+        return shopService.listShops();
     }
 
     @ApiOperation("文件上传（Feed图片）")

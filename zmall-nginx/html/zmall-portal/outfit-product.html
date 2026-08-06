@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>AI 随心搭 · 商品换装 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+<link rel="stylesheet" type="text/css" href="./css/index.css"/>
+<link rel="stylesheet" type="text/css" href="./css/ai-outfit.css"/>
+<style>
+  /* v3.1 §10.2：按钮 Tooltip + 服务故障横幅 + 部分失败横幅 + 占位图 */
+  .btn-disabled-tip { position: relative; display: inline-block; }
+  .btn-disabled-tip:hover .tip-text { display: block; }
+  .btn-disabled-tip .tip-text {
+    display: none; position: absolute; bottom: 100%; left: 50%;
+    transform: translateX(-50%); background: #333; color: #fff;
+    padding: 6px 10px; border-radius: 4px; font-size: 12px;
+    white-space: nowrap; margin-bottom: 6px; z-index: 10;
+  }
+  .btn-disabled-tip .tip-text::after {
+    content: ''; position: absolute; top: 100%; left: 50%;
+    transform: translateX(-50%); border: 5px solid transparent; border-top-color: #333;
+  }
+  .service-down-banner {
+    margin-top: 12px; padding: 10px 14px; background: #fff3e0;
+    border: 1px solid #ffb74d; color: #e65100; border-radius: 6px; font-size: 13px;
+  }
+  .partial-failure-banner {
+    margin-bottom: 14px; padding: 10px 14px; background: #fff8e1;
+    border: 1px solid #ffe082; color: #ff9800; border-radius: 6px; font-size: 13px;
+  }
+  .item-image-placeholder {
+    width: 60px; height: 60px; background: #f5f5f5; color: #999;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; border-radius: 4px; border: 1px solid #eee;
+  }
+  /* v3.2：多套搭配切换 Tab + 单品"换这个"按钮 + 反馈轮次徽章 */
+  .outfit-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .outfit-tab {
+    padding: 6px 14px; border: 1px solid #ddd; border-radius: 4px;
+    background: #fff; cursor: pointer; font-size: 13px; color: #666;
+    transition: all .2s;
+  }
+  .outfit-tab:hover { border-color: #ff9800; color: #ff9800; }
+  .outfit-tab.active {
+    background: #ff9800; color: #fff; border-color: #ff9800; font-weight: bold;
+  }
+  .outfit-tab.failed { border-color: #e54346; color: #e54346; }
+  .outfit-tab.failed.active { background: #e54346; border-color: #e54346; }
+  .round-badge {
+    display: inline-block; padding: 2px 8px; font-size: 12px;
+    background: #fff3e0; color: #e65100; border-radius: 10px; margin-left: 8px;
+  }
+  .item-replace-btn {
+    margin-left: 6px; padding: 1px 8px; font-size: 11px;
+    background: #fff; color: #ff9800; border: 1px solid #ff9800;
+    border-radius: 3px; cursor: pointer;
+  }
+  .item-replace-btn:hover { background: #ff9800; color: #fff; }
+  .item-replace-btn:disabled { color: #ccc; border-color: #ddd; cursor: not-allowed; background: #f5f5f5; }
+  .accepted-banner {
+    margin-bottom: 14px; padding: 14px; background: #f0f9eb;
+    border: 1px solid #67c23a; color: #67c23a; border-radius: 6px;
+    font-size: 14px; text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="ai-container">
+    <h1 class="ai-page-title">AI 随心搭 · 商品换装</h1>
+
+    <!-- 顶部 CreditsBar（v3.2：商品驱动模式接入 v3 credits 体系） -->
+    <credits-bar :balance="creditsBalance"
+                 :expiring-soon="expiringSoon"
+                 :nearest-expiry="nearestExpiry"
+                 @recharge="showRechargeDialog = true">
+    </credits-bar>
+
+    <!-- 主商品信息 -->
+    <div class="ai-section" v-if="mainItem">
+      <h3>主商品</h3>
+      <div style="display:flex;gap:16px;">
+        <img :src="mainItem.image" :alt="mainItem.name" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #eee;"/>
+        <div style="flex:1;">
+          <div style="font-size:16px;font-weight:bold;color:#333;">{{ mainItem.name }}</div>
+          <div style="color:#999;font-size:13px;margin-top:4px;">{{ mainItem.category || '-' }} · {{ mainItem.brand || '-' }}</div>
+          <div style="color:#e54346;font-size:18px;font-weight:bold;margin-top:8px;">￥{{ formatPrice(mainItem.price) }}</div>
+          <a href="javascript:void(0)" @click="backToDetail" class="btn-link" style="margin-top:8px;display:inline-block;">← 返回商品详情</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 照片准备 -->
+    <div class="ai-section">
+      <h3>第 1 步：选择试衣照片</h3>
+      <div class="photo-options">
+        <div class="photo-option" :class="{active: photoMode === 'default'}" @click="photoMode = 'default'">
+          <div class="option-icon">👗</div>
+          <div class="option-label">使用默认模特</div>
+          <div class="option-desc">AI 自动选择契合的模特</div>
+        </div>
+        <div class="photo-option" :class="{active: photoMode === 'custom'}" @click="photoMode = 'custom'">
+          <div class="option-icon">📷</div>
+          <div class="option-label">上传我的真人照片</div>
+          <div class="option-desc">全身照效果更佳</div>
+        </div>
+      </div>
+
+      <!-- P1-1 系统模特选择（US-AT-58，复用 outfit-agent.html 代码）-->
+      <div v-if="photoMode === 'default'" style="margin-top:16px;">
+        <div v-if="selectedSystemModel" style="display:flex;align-items:center;gap:12px;padding:12px;background:#f5f7fa;border-radius:6px;border:1px solid #dcdfe6;">
+          <img :src="selectedSystemModel.imageUrl" alt="选定模特"
+               style="width:64px;height:80px;object-fit:cover;border-radius:4px;"/>
+          <div style="flex:1;font-size:13px;color:#333;">
+            <div>
+              <strong>已选定模特</strong>
+              <span class="gender-badge" :class="selectedSystemModel.gender"
+                    style="margin-left:8px;padding:2px 8px;border-radius:10px;font-size:12px;color:#fff;"
+                    :style="{background: selectedSystemModel.gender === 'male' ? '#1976d2' : '#e91e63'}">
+                {{ genderLabel(selectedSystemModel.gender) }}
+              </span>
+            </div>
+            <div style="color:#666;margin-top:4px;">
+              身高 {{ selectedSystemModel.height || '-' }}cm
+              · {{ bodyTypeLabel(selectedSystemModel.bodyType) }}
+              · {{ ageRangeLabel(selectedSystemModel.ageRange) }}
+            </div>
+            <div v-if="selectedSystemModel.note" style="color:#999;margin-top:2px;font-size:12px;">
+              {{ selectedSystemModel.note }}
+            </div>
+          </div>
+          <div>
+            <button class="btn-link" @click="openSystemModelPicker" style="font-size:13px;">更换</button>
+            <button class="btn-link" @click="clearSelectedSystemModel" style="margin-left:8px;font-size:13px;color:#999;">清除</button>
+          </div>
+        </div>
+        <div v-else style="padding:14px;background:#fafafa;border:1px dashed #dcdfe6;border-radius:6px;text-align:center;">
+          <div style="font-size:13px;color:#666;margin-bottom:8px;">
+            未选定具体模特，AI 将随机分配系统默认模特
+          </div>
+          <button class="btn-secondary" @click="openSystemModelPicker" style="font-size:13px;">
+            📋 选择男/女模特
+          </button>
+        </div>
+        <div class="form-hint" style="margin-top:8px;color:#909399;">
+          提示：选定男模特 → AI 只配男款+中性款；选定女模特 → AI 只配女款+中性款
+        </div>
+      </div>
+
+      <!-- 上传照片区域 -->
+      <div v-if="photoMode === 'custom'" style="margin-top:16px;">
+        <div class="photo-uploader" :class="{'has-photo': userPhotoUrl}" @click="triggerFileInput">
+          <img v-if="userPhotoUrl" :src="userPhotoUrl" alt="我的照片"/>
+          <div v-else>
+            <div class="upload-icon">📤</div>
+            <div class="upload-text">点击上传真人全身照</div>
+            <div class="upload-hint">支持 jpg/png，≤10MB</div>
+          </div>
+        </div>
+        <input ref="fileInput" type="file" accept="image/jpeg,image/png" style="display:none;" @change="onFileChange"/>
+        <div v-if="userPhotoSessionKey" style="margin-top:8px;font-size:13px;color:#67c23a;">
+          ✓ 照片已上传，会话有效 30 分钟
+          <button class="btn-link" @click="clearPhoto">清除照片</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 立即生成 -->
+    <div class="ai-section">
+      <h3>第 2 步：生成换装效果</h3>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <!-- v3.1 §10.2：AI 服务故障时按钮置灰 + Tooltip -->
+        <div class="btn-disabled-tip" v-if="!serviceAvailable">
+          <button class="btn-ai-outfit" disabled>立即生成</button>
+          <span class="tip-text">AI 服务暂不可用，请稍后重试</span>
+        </div>
+        <button v-else class="btn-ai-outfit" :disabled="generating || creditsBalance < 5" @click="generate">
+          {{ generating ? '生成中...' : '立即生成' }}
+        </button>
+        <span class="ai-text-muted">单次扣 5 credits（v3 credits 积分制）</span>
+        <button v-if="creditsBalance < 5 && serviceAvailable" class="btn-ghost" @click="showRechargeDialog = true">充值</button>
+        <button v-if="!serviceAvailable" class="btn-ghost" @click="retryService">重试</button>
+      </div>
+      <!-- v3.1 §10.2：服务故障友好提示 -->
+      <div v-if="!serviceAvailable" class="service-down-banner">
+        ⚠ AI 换装服务暂时不可用，已自动为您保留页面，可点击"重试"重新发起生成。
+      </div>
+    </div>
+
+    <!-- 结果展示 -->
+    <div class="ai-section" v-if="result">
+      <h3>换装结果
+        <span v-if="round > 1" class="round-badge">第 {{ round }} 轮</span>
+        <span v-if="result.outfits && result.outfits.length > 1"
+              class="ai-text-muted" style="font-size:13px;margin-left:8px;">
+          （共 {{ result.outfits.length }} 套候选，点击 Tab 切换）
+        </span>
+      </h3>
+
+      <!-- v3.2：已采纳状态横幅 -->
+      <div v-if="accepted" class="accepted-banner">
+        ✅ 当前搭配已采纳，无法继续反馈。可点击"换一套"重新生成或返回商品详情。
+      </div>
+
+      <!-- v3.1 §10.2：VTON 部分失败友好提示 -->
+      <div v-if="!accepted && partialFailure" class="partial-failure-banner">
+        ⚠ 部分单品换装效果不理想，已用商品原图兜底展示。可点击"换一套"重新生成，或"反馈调整"提交修改。
+      </div>
+
+      <div class="outfit-product-result" v-if="result.outfits && result.outfits.length > 0 && currentOutfit">
+        <!-- v3.2：多套搭配切换 Tab（仅 1 套时不显示） -->
+        <div class="outfit-tabs" v-if="result.outfits.length > 1">
+          <span v-for="(o, idx) in result.outfits" :key="idx"
+                class="outfit-tab"
+                :class="{active: currentOutfitIndex === idx, failed: !o.resultUrl}"
+                @click="selectOutfit(idx)">
+            搭配 {{ idx + 1 }}
+            <span v-if="!o.resultUrl">❌</span>
+          </span>
+        </div>
+
+        <div class="vton-main-image">
+          <img :src="currentOutfit.resultUrl" alt="换装效果图" v-if="currentOutfit.resultUrl"/>
+          <div v-else class="ai-no-data">
+            <div style="font-size:32px;margin-bottom:8px;">🖼️</div>
+            效果图生成失败<br/>
+            <span class="ai-text-muted" style="font-size:12px;">请点击"换一套"重试，或切换其他搭配</span>
+          </div>
+        </div>
+        <div class="outfit-info-side">
+          <div class="outfit-items-list">
+            <div class="outfit-item-row" v-for="(it, idx) in currentOutfit.items" :key="idx">
+              <img :src="it.image" :alt="it.name" v-if="it.image"/>
+              <div v-else class="item-image-placeholder">无图</div>
+              <div class="outfit-item-info">
+                <div class="outfit-item-name">
+                  {{ it.name }}
+                  <span v-if="it.isMain" class="wardrobe-tag" style="background:#e54346;">主商品</span>
+                </div>
+                <div class="outfit-item-meta">{{ it.category || '-' }} · {{ it.color || '-' }}</div>
+                <div class="outfit-item-price">￥{{ formatPrice(it.price) }}</div>
+              </div>
+              <div class="outfit-item-actions">
+                <!-- v3.2：互补商品"换这个"按钮（主商品 isMain=True 不可替换） -->
+                <button v-if="!it.isMain && canFeedback"
+                        class="item-replace-btn"
+                        @click="openPickReplace(currentOutfitIndex, idx)">换这个</button>
+                <a v-if="!it.isMain" href="javascript:void(0)" class="btn-link" @click="addToCart(it.itemId)">加入购物车</a>
+                <a href="javascript:void(0)" class="btn-link" @click="goItemDetail(it.itemId)">查看商品</a>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
+            <button v-if="canFeedback" class="btn-ghost" @click="openFeedback">
+              💬 反馈调整（第 {{ round }} / {{ maxRounds }} 轮）
+            </button>
+            <button class="btn-secondary" :disabled="generating || accepted" @click="generate">换一套</button>
+            <button class="btn-primary" :disabled="generating || accepted" @click="addAllComplements">加购互补商品</button>
+            <button class="btn-ghost" @click="backToDetail">返回商品详情</button>
+          </div>
+          <div class="form-hint" style="margin-top:8px;" v-if="canFeedback">
+            💡 反馈调整不扣 credits，同会话最多 {{ maxRounds }} 轮（首轮 + {{ maxRounds - 1 }} 轮反馈）
+          </div>
+        </div>
+      </div>
+      <div v-else class="ai-no-data">暂无结果</div>
+    </div>
+
+    <!-- v3.2：商品驱动模式多轮反馈对话框 -->
+    <product-feedback-dialog :show="showFeedbackDialog"
+                             :task-id="taskId"
+                             :outfits="result ? (result.outfits || []) : []"
+                             :round="round"
+                             :max-rounds="maxRounds"
+                             :preset-outfit-index="presetOutfitIndex"
+                             :preset-item-index="presetItemIndex"
+                             @close="closeFeedback"
+                             @submitted="onFeedbackSubmitted">
+    </product-feedback-dialog>
+
+    <!-- 充值对话框（v3.2：商品驱动模式接入 v3 credits 充值体系） -->
+    <recharge-dialog :show="showRechargeDialog"
+                     :current-balance="creditsBalance"
+                     :wallet-balance="walletBalance"
+                     :first-gift-received="firstGiftReceived"
+                     @close="showRechargeDialog = false"
+                     @recharged="onRecharged">
+    </recharge-dialog>
+
+    <!-- P1-1 系统模特选择对话框（US-AT-58，复用 outfit-agent.html 代码）-->
+    <div v-if="showSystemModelPicker" class="modal-mask" @click.self="showSystemModelPicker = false">
+      <div class="modal-box" style="max-width:900px;">
+        <div class="modal-header">
+          <h3>选择系统模特</h3>
+          <button class="modal-close" @click="showSystemModelPicker = false">×</button>
+        </div>
+        <div class="modal-body" style="padding:16px;">
+          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+            <span style="font-size:13px;color:#666;">性别筛选：</span>
+            <button class="chip" :class="{active: systemModelGenderFilter === null}"
+                    @click="switchSystemModelGenderFilter(null)">全部</button>
+            <button class="chip" :class="{active: systemModelGenderFilter === 'male'}"
+                    @click="switchSystemModelGenderFilter('male')">♂ 男模特</button>
+            <button class="chip" :class="{active: systemModelGenderFilter === 'female'}"
+                    @click="switchSystemModelGenderFilter('female')">♀ 女模特</button>
+          </div>
+          <div v-if="systemModelLoading" style="text-align:center;padding:40px 0;color:#999;">加载中...</div>
+          <div v-else-if="systemModelList.length === 0" style="text-align:center;padding:40px 0;color:#999;">
+            暂无符合条件的模特图
+          </div>
+          <div v-else style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;max-height:480px;overflow-y:auto;">
+            <div v-for="m in systemModelList" :key="m.id"
+                 class="model-card"
+                 :class="{selected: selectedSystemModel && selectedSystemModel.id === m.id}"
+                 @click="selectSystemModel(m)"
+                 style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color 0.2s;">
+              <div style="position:relative;">
+                <img :src="m.imageUrl" :alt="m.note || '模特'"
+                     style="width:100%;height:200px;object-fit:cover;display:block;"/>
+                <span class="gender-badge" :class="m.gender"
+                      style="position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:10px;font-size:11px;color:#fff;"
+                      :style="{background: m.gender === 'male' ? '#1976d2' : '#e91e63'}">
+                  {{ genderLabel(m.gender) }}
+                </span>
+              </div>
+              <div style="padding:8px 10px;font-size:12px;color:#333;background:#fff;">
+                <div v-if="m.height || m.bodyType || m.ageRange" style="color:#666;">
+                  {{ m.height ? m.height + 'cm · ' : '' }}{{ bodyTypeLabel(m.bodyType) }} · {{ ageRangeLabel(m.ageRange) }}
+                </div>
+                <div v-if="m.note" style="color:#999;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  {{ m.note }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="showSystemModelPicker = false">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- IP 授权弹窗：进页面时询问用户是否允许获取 IP 定位 -->
+  <div v-if="cityConsentVisible" class="modal-mask" @click.self="denyCityConsent">
+    <div class="modal-box" style="max-width:440px;">
+      <div class="modal-header">
+        <h3>位置信息授权</h3>
+      </div>
+      <div class="modal-body" style="padding:20px;text-align:center;">
+        <div style="font-size:48px;color:#4a90d9;margin-bottom:12px;">📍</div>
+        <p style="font-size:15px;color:#333;line-height:1.7;margin:0 0 8px;">
+          AI 随心搭需要获取您的所在城市，用于查询当地天气以推荐合适的穿搭。
+        </p>
+        <p style="font-size:13px;color:#999;line-height:1.6;margin:0;">
+          允许后将通过 IP 定位获取您所在城市；拒绝将使用默认城市（北京）。
+        </p>
+      </div>
+      <div class="modal-actions" style="justify-content:center;gap:12px;">
+        <button class="btn-cancel" @click="denyCityConsent">使用默认城市</button>
+        <button class="btn-secondary" style="background:#4a90d9;color:#fff;border-color:#4a90d9;" @click="allowCityConsent">允许获取</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script src="./js/components/credits-bar.js"></script>
+<script src="./js/components/recharge-dialog.js"></script>
+<script src="./js/components/product-feedback-dialog.js"></script>
+<script src="./js/components/ai-outfit-ws.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    itemId: null,
+    mainItem: null,
+    // v3.2 credits 余额（与风格驱动共享 user_id 配额池）
+    creditsBalance: 0,
+    expiringSoon: 0,
+    nearestExpiry: '',
+    firstGiftReceived: false,
+    walletBalance: 0,
+    showRechargeDialog: false,
+    photoMode: 'default',  // default / custom
+    userPhotoUrl: '',
+    userPhotoSessionKey: util.getPhotoSession() || '',
+    // 性别与服装匹配（2026-07-27 新增）：商品驱动模式也支持身体档案
+    bodyProfile: null,          // 用户身体信息档案（用于性别过滤）
+    bodyProfileLoaded: false,
+    generating: false,
+    taskId: '',
+    result: null,
+    ws: null,
+    loading: null,
+    poller: null,
+    _timeouts: [],              // setTimeout 引用（cleanup 时统一清除，防止内存泄漏）
+    // v3.1 §10.2：AI 服务可用性
+    serviceAvailable: true,
+    // IP 授权弹窗显示控制
+    cityConsentVisible: false,
+    // v3.2：多轮反馈支持（与风格驱动模式对齐）
+    round: 1,                       // 当前反馈轮次（1 = 首轮）
+    maxRounds: 3,                   // 同会话最大轮次
+    currentOutfitIndex: 0,          // 当前选中的搭配索引（多套切换）
+    accepted: false,                // 是否已采纳（action=accept 后置 true）
+    showFeedbackDialog: false,
+    presetOutfitIndex: null,        // 点哪换哪预填：搭配索引
+    presetItemIndex: null,          // 点哪换哪预填：单品索引
+    // P1-1 系统模特选择（US-AT-58，复用 outfit-agent.html 逻辑）
+    systemModelList: [],
+    systemModelLoading: false,
+    selectedSystemModel: null,
+    showSystemModelPicker: false,
+    systemModelGenderFilter: null,
+  },
+  computed: {
+    userId() { return util.getUserId(); },
+    // v3.2：当前选中的搭配对象（基于 currentOutfitIndex）
+    currentOutfit() {
+      if (!this.result || !this.result.outfits || this.result.outfits.length === 0) return null;
+      const idx = Math.min(this.currentOutfitIndex, this.result.outfits.length - 1);
+      return this.result.outfits[idx] || null;
+    },
+    // v3.2：多轮反馈可用性（未采纳 + 未达上限 + 非生成中）
+    canFeedback() {
+      if (this.accepted) return false;
+      if (this.generating) return false;
+      return this.round < this.maxRounds;
+    },
+    // v3.1 §10.2：VTON 部分失败判定（v3.2 改为基于当前选中搭配）
+    partialFailure() {
+      if (!this.currentOutfit) return false;
+      const outfit = this.currentOutfit;
+      // 显式标记或 resultUrl 缺失或单品缺图
+      if (outfit.isPartialFailure) return true;
+      if (!outfit.resultUrl) return true;
+      return (outfit.items || []).some(it => !it.image);
+    },
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.itemId = parseInt(util.getUrlParam('id'));
+    if (!this.itemId) { util.toast('缺少商品 ID', 'error'); setTimeout(() => location.href = '/', 1500); return; }
+    this.loadItem();
+    this.loadCredits();
+    this.loadBodyProfile();
+    if (this.userPhotoSessionKey) {
+      // 已有照片会话，自动切换到 custom 模式（但不显示预览，因 base64 未持久化）
+      this.photoMode = 'custom';
+    }
+    // 城市定位：进页面时检查缓存，过期则弹窗询问
+    this.initCityConsent();
+  },
+  beforeDestroy() {
+    this.cleanup();
+  },
+  methods: {
+    formatPrice(val) { return util.formatPrice(val); },
+    // 城市定位：缓存有效则续期，过期则弹窗询问用户是否允许获取定位
+    initCityConsent() {
+      if (util.getUserCity() !== null) {
+        // 缓存有效（含真实城市或"北京"兜底）：续期 30 分钟 TTL
+        util.renewCityCache();
+      } else {
+        // 缓存过期或不存在：弹窗询问
+        this.cityConsentVisible = true;
+      }
+    },
+    // 用户点击"允许获取定位"
+    async allowCityConsent() {
+      this.cityConsentVisible = false;
+      await util.requestUserCity();
+    },
+    // 用户点击"使用默认城市"
+    denyCityConsent() {
+      this.cityConsentVisible = false;
+      util.setDefaultCity();
+    },
+    // 性别与服装匹配（2026-07-27 新增）：加载用户身体信息档案
+    loadBodyProfile() {
+      axios.get('/body-profile').then(res => {
+        const list = Array.isArray(res) ? res : (res.data || []);
+        if (list.length > 0) {
+          this.bodyProfile = list.find(p => p.isDefault === 1) || list[0];
+        }
+        this.bodyProfileLoaded = true;
+      }).catch(() => { this.bodyProfileLoaded = true; });
+    },
+    genderLabel(g) {
+      return g === 'male' ? '男' : (g === 'female' ? '女' : '中性');
+    },
+    // P1-1 系统模特选择（US-AT-58，复用 outfit-agent.html 实现）
+    loadSystemModelList() {
+      if (this.systemModelList.length > 0) return;
+      this.systemModelLoading = true;
+      const params = {};
+      if (this.systemModelGenderFilter) params.gender = this.systemModelGenderFilter;
+      axios.get('/v1/outfit/agent/system-models', { params }).then(res => {
+        const list = (res && res.list) ? res.list : (Array.isArray(res) ? res : []);
+        this.systemModelList = list.filter(m => m.imageUrl);
+      }).catch(() => {
+        this.systemModelList = [];
+      }).finally(() => {
+        this.systemModelLoading = false;
+      });
+    },
+    openSystemModelPicker() {
+      this.showSystemModelPicker = true;
+      this.loadSystemModelList();
+    },
+    switchSystemModelGenderFilter(gender) {
+      this.systemModelGenderFilter = gender;
+      this.systemModelList = [];
+      this.loadSystemModelList();
+    },
+    selectSystemModel(model) {
+      this.selectedSystemModel = model;
+      this.showSystemModelPicker = false;
+    },
+    clearSelectedSystemModel() {
+      this.selectedSystemModel = null;
+    },
+    bodyTypeLabel(t) {
+      const map = { slim: '苗条', standard: '标准', curvy: '曲线', plus: '丰满' };
+      return map[t] || t || '-';
+    },
+    ageRangeLabel(a) {
+      const map = { '18-25': '18-25岁', '26-35': '26-35岁', '36-45': '36-45岁', '46+': '46岁以上' };
+      return map[a] || a || '-';
+    },
+    loadItem() {
+      axios.get('/items/' + this.itemId).then(res => {
+        this.mainItem = res;
+      }).catch(err => {
+        util.toast('商品信息加载失败', 'error');
+      });
+    },
+    // v3.2：加载 credits 余额（与风格驱动模式共用 Java 端 GET /credits/balance/{userId}）
+    loadCredits() {
+      axios.get('/credits/balance/' + this.userId).then(res => {
+        this.creditsBalance = res.balance || 0;
+        this.expiringSoon = res.expiringSoon || 0;
+        this.nearestExpiry = res.nearestExpiry || '';
+        this.firstGiftReceived = !!res.firstGiftReceived;
+        // 钱包余额暂复用 credits 余额（项目无独立钱包接口）
+        // P1-7 修复：1 元 = 5 credits，即 1 credit = 0.2 元 = 20 分
+        this.walletBalance = res.walletBalance || 0;  // 真实 user.balance（分）
+      }).catch(() => {});
+    },
+    onRecharged(res) {
+      this.loadCredits();
+    },
+    backToDetail() {
+      location.href = '/item-detail.html?id=' + this.itemId;
+    },
+    goItemDetail(id) {
+      location.href = '/item-detail.html?id=' + id;
+    },
+    triggerFileInput() {
+      if (this.userPhotoUrl) return;
+      this.$refs.fileInput.click();
+    },
+    onFileChange(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) {
+        util.toast('图片不能超过 10MB', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64 = ev.target.result;
+        this.userPhotoUrl = base64;
+        this.uploadPhoto(base64);
+      };
+      reader.readAsDataURL(file);
+      // P2 修复：清空 input value，允许重复选择同一文件
+      e.target.value = '';
+    },
+    uploadPhoto(base64) {
+      axios.post('/v1/outfit/photo', { photo: base64 }).then(res => {
+        this.userPhotoSessionKey = res.photoSessionKey;
+        util.savePhotoSession(res.photoSessionKey);
+        util.toast('照片上传成功', 'success');
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '上传失败';
+        util.toast(msg, 'error');
+        this.userPhotoUrl = '';
+      });
+    },
+    clearPhoto() {
+      axios.delete('/v1/outfit/photo').then(() => {
+        this.userPhotoUrl = '';
+        this.userPhotoSessionKey = '';
+        util.clearPhotoSession();
+        util.toast('照片已清除', 'info');
+      }).catch(() => {
+        // 即使后端失败也清除本地
+        this.userPhotoUrl = '';
+        this.userPhotoSessionKey = '';
+        util.clearPhotoSession();
+      });
+    },
+    async generate() {
+      if (this.generating) return;
+      if (this.photoMode === 'custom' && !this.userPhotoSessionKey) {
+        util.toast('请先上传真人照片', 'warning');
+        return;
+      }
+      // v3.2：提交前本地预检 credits 余额（< 5 直接弹充值框）
+      if (this.creditsBalance < 5) {
+        this.showRechargeDialog = true;
+        return;
+      }
+      // 性别与服装匹配 + photoMode 联动（2026-07-31 改造）：
+      // - 真人照片模式（custom）：必填身体信息档案（含性别），未登记则阻断提交
+      // - 系统模特模式（default）：体验版，不强制身体信息，userBodyProfileId 传 null，
+      //   后端节点1 用 systemModelGender 进行 Qdrant 性别过滤，尺码推荐延后到下单/加购阶段
+      if (this.photoMode === 'custom') {
+        if (!this.bodyProfileLoaded) {
+          util.toast('身体信息档案加载中，请稍候', 'warning');
+          return;
+        }
+        if (!this.bodyProfile) {
+          util.toast('请先在「我的衣橱」登记身体信息档案（含性别）后再使用 AI 搭配', 'error');
+          setTimeout(() => { location.href = '/wardrobe.html'; }, 1500);
+          return;
+        }
+      }
+      // P2-2 修复：系统模特性别 vs 身体档案性别一致性校验（与 outfit-agent.html 一致）
+      // 系统模特模式下若用户未登记档案则跳过此校验（体验版允许无档案）
+      if (this.selectedSystemModel && this.bodyProfile
+          && this.selectedSystemModel.gender !== this.bodyProfile.gender) {
+        util.toast('选定的系统模特性别（' + this.genderLabel(this.selectedSystemModel.gender)
+          + '）与身体档案性别（' + this.genderLabel(this.bodyProfile.gender) + '）不一致，请重新选择', 'error');
+        return;
+      }
+      this.generating = true;
+      this.result = null;
+      // v3.2：新一轮生成重置反馈状态（与风格驱动模式一致）
+      this.round = 1;
+      this.currentOutfitIndex = 0;
+      this.accepted = false;
+      this.presetOutfitIndex = null;
+      this.presetItemIndex = null;
+      this.cleanup();
+
+      try {
+        // 天气服务：提交前校验城市缓存，过期则静默刷新定位
+        const { city: userCity, country: userCountry } = await util.ensureCityFresh();
+        const body = {
+          itemIds: [this.itemId],
+          photoSessionKey: this.photoMode === 'custom' ? this.userPhotoSessionKey : null,
+          // P1-1 系统模特选择（US-AT-58）：传递用户选定的系统模特信息
+          // 主商品不参与性别过滤（用户已选定），仅互补商品按性别过滤
+          // 优先级：selectedSystemModel > bodyProfile.gender > 无过滤
+          // 仅 default 模式（系统模特）下传系统模特信息，custom 模式（用户自定义照片）不传
+          systemModelId: (this.photoMode === 'default' && this.selectedSystemModel)
+                           ? this.selectedSystemModel.id : null,
+          systemModelImageUrl: (this.photoMode === 'default' && this.selectedSystemModel)
+                                ? this.selectedSystemModel.imageUrl : null,
+          systemModelGender: (this.photoMode === 'default' && this.selectedSystemModel)
+                              ? this.selectedSystemModel.gender : null,
+          // 身体信息档案 ID（2026-07-31 改造）：
+          // - 真人照片模式必填（上方已校验），传 bodyProfile.id 供节点1 LLM 决策 + 尺码推荐
+          // - 系统模特体验版可不传，后端按 systemModelGender 过滤性别，尺码推荐延后到下单/加购
+          userBodyProfileId: this.bodyProfile ? this.bodyProfile.id : null,
+          // 天气服务：前端 IP 定位获取用户城市，后端调 uapis.cn 查天气
+          userCity: userCity,
+          userCountry: userCountry,
+        };
+        const res = await axios.post('/v1/outfit/generate', body, { timeout: 120000 });
+        this.taskId = res.taskId;
+        // 启动 Loading
+        this.loading = new AiOutfitLoading();
+        this.loading.show();
+        // 启动 WS
+        this.startWS();
+      } catch (err) {
+        this.generating = false;
+        const status = err.response && err.response.status;
+        const data = err.response && err.response.data || {};
+        if (status === 403) {
+          // v3.2：配额不足弹充值对话框（与风格驱动模式一致）
+          this.showRechargeDialog = true;
+        } else if (status === 429) {
+          util.toast(data.detail || data.msg || '上一条搭配还在生成中，请稍候', 'warning');
+        } else if (!err.response || status >= 500) {
+          // v3.1 §10.2：网络错误或 5xx 视为 AI 服务故障
+          this.serviceAvailable = false;
+          util.toast('AI 服务暂不可用，请稍后重试', 'error');
+        } else {
+          util.toast(data.msg || data.detail || '生成失败', 'error');
+        }
+      }
+    },
+    // v3.1 §10.2：服务故障后用户主动重试
+    retryService() {
+      this.serviceAvailable = true;
+      this.generate();
+    },
+    startWS() {
+      const self = this;
+      this.ws = new AiOutfitWS(this.userId, this.taskId, {
+        onMessage(msg) { self.handleMessage(msg); },
+        onClose() { self.startPolling(); },
+      });
+      this.ws.connect();
+      // 安全兜底：30s 后强制启动轮询（防止 WS 静默）
+      // P1 修复：跟踪 setTimeout 引用，cleanup 时统一清除，防止组件销毁后定时器仍引用已销毁实例
+      this._timeouts.push(setTimeout(() => {
+        if (self.generating && !self.result) {
+          self.startPolling();
+        }
+      }, 30000));
+    },
+    startPolling() {
+      if (this.poller) return;  // 已启动
+      const self = this;
+      // P0 修复：商品驱动模式结果查询走 /v1/outfit/result/（非 /v1/outfit/agent/result/）
+      this.poller = new AiOutfitPoller(this.taskId, {
+        resultPath: '/v1/outfit/result/',
+        onResult(res) { self.handlePollResult(res); },
+        onTimeout() {
+          if (!self.result) {
+            self.generating = false;
+            if (self.loading) self.loading.hide();
+            util.toast('生成超时，请稍后重试', 'error');
+          }
+        },
+        onNotFound() {
+          self.generating = false;
+          if (self.loading) self.loading.hide();
+          util.toast('任务不存在或已过期', 'error');
+        },
+      });
+      this.poller.start();
+    },
+    handleMessage(msg) {
+      if (!msg || msg.type !== 'OUTFIT_PRODUCT') return;
+      console.log('[WS] type=' + msg.type + ', status=' + msg.status + ', taskId=' + (msg.taskId || 'N/A'));
+      if (msg.status === 'SUCCESS') {
+        this.result = msg;
+        // v3.2：新结果重置当前选中搭配索引（反馈轮可能改变 outfits 数量）
+        this.currentOutfitIndex = 0;
+        this.generating = false;
+        if (this.loading) this.loading.hide();
+        this.cleanup();
+        // v3.2：反馈轮完成后刷新 credits 余额（虽然不扣 credits，保持一致）
+        this.loadCredits();
+        util.toast('换装完成', 'success');
+      } else if (msg.status === 'ACCEPTED') {
+        // v3.2：用户在反馈对话框中触发 action=accept，搭配已采纳
+        this.accepted = true;
+        this.generating = false;
+        if (this.loading) this.loading.hide();
+        this.cleanup();
+        util.toast(msg.msg || '已采纳当前搭配', 'success');
+      } else if (msg.status === 'FAILED') {
+        this.generating = false;
+        if (this.loading) this.loading.hide();
+        this.cleanup();
+        util.toast(msg.msg || msg.errorMsg || '生成失败', 'error');
+      }
+    },
+    handlePollResult(res) {
+      if (!res) return;
+      if (res.status === 'SUCCESS') {
+        // v3.2：刷新页面恢复时，后端可能返回 accepted=true 标记
+        if (res.accepted) {
+          this.result = res;
+          this.currentOutfitIndex = res.outfitIndex !== undefined ? res.outfitIndex : 0;
+          this.accepted = true;
+          this.generating = false;
+          if (this.loading) this.loading.hide();
+          this.cleanup();
+          return;
+        }
+        this.result = res;
+        this.currentOutfitIndex = 0;
+        this.generating = false;
+        if (this.loading) this.loading.hide();
+        this.cleanup();
+        this.loadCredits();
+        util.toast('换装完成', 'success');
+      } else if (res.status === 'FAILED') {
+        this.generating = false;
+        if (this.loading) this.loading.hide();
+        this.cleanup();
+        util.toast(res.errorMsg || '生成失败', 'error');
+      }
+    },
+    cleanup() {
+      if (this.ws) { this.ws.close(); this.ws = null; }
+      if (this.poller) { this.poller.stop(); this.poller = null; }
+      // P1 修复：清除所有未触发的 setTimeout，防止组件销毁后回调访问已销毁实例
+      if (this._timeouts && this._timeouts.length) {
+        this._timeouts.forEach(id => clearTimeout(id));
+        this._timeouts = [];
+      }
+    },
+    addToCart(itemId) {
+      axios.post('/carts', { itemId, num: 1 }).then(() => {
+        util.toast('已加入购物车', 'success');
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '加购失败';
+        util.toast(msg, 'error');
+      });
+    },
+    addAllComplements() {
+      // v3.2：使用当前选中的搭配（替代固定 outfits[0]）
+      if (!this.currentOutfit) {
+        util.toast('暂无搭配可选', 'info');
+        return;
+      }
+      const items = this.currentOutfit.items || [];
+      const complements = items.filter(it => !it.isMain);
+      if (complements.length === 0) {
+        util.toast('暂无互补商品可加购', 'info');
+        return;
+      }
+      Promise.all(complements.map(it => axios.post('/carts', { itemId: it.itemId, num: 1 })))
+        .then(() => {
+          util.toast(`已加购 ${complements.length} 件互补商品`, 'success');
+        })
+        .catch(err => {
+          util.toast('部分商品加购失败', 'error');
+        });
+    },
+    // ============================================================
+    // v3.2：多轮反馈支持（与风格驱动模式对齐）
+    // ============================================================
+    // 切换查看的搭配（多套候选时）
+    selectOutfit(idx) {
+      if (idx < 0 || idx >= (this.result.outfits || []).length) return;
+      this.currentOutfitIndex = idx;
+    },
+    // 打开反馈对话框（整体调整模式）
+    openFeedback() {
+      if (!this.canFeedback) {
+        if (this.accepted) {
+          util.toast('当前搭配已采纳，无法反馈', 'warning');
+        } else if (this.round >= this.maxRounds) {
+          util.toast('已达到最大反馈轮次', 'warning');
+        }
+        return;
+      }
+      this.presetOutfitIndex = null;
+      this.presetItemIndex = null;
+      this.showFeedbackDialog = true;
+    },
+    // 点哪换哪：从单品"换这个"按钮触发
+    openPickReplace(outfitIdx, itemIdx) {
+      if (!this.canFeedback) {
+        if (this.accepted) {
+          util.toast('当前搭配已采纳，无法反馈', 'warning');
+        } else if (this.round >= this.maxRounds) {
+          util.toast('已达到最大反馈轮次', 'warning');
+        }
+        return;
+      }
+      this.presetOutfitIndex = outfitIdx;
+      this.presetItemIndex = itemIdx;
+      this.showFeedbackDialog = true;
+    },
+    closeFeedback() {
+      this.showFeedbackDialog = false;
+      this.presetOutfitIndex = null;
+      this.presetItemIndex = null;
+    },
+    // 反馈提交成功后的回调：清空当前结果，启动新一轮监听
+    onFeedbackSubmitted(res) {
+      util.toast('反馈已提交，正在调整搭配...', 'success');
+      // v3.2：反馈轮 taskId 不变（同会话内），推进 round 并启动新一轮 WS 监听
+      this.round++;
+      this.generating = true;  // 禁用按钮，等待新结果
+      this.result = null;       // 清空旧结果，显示 Loading
+      this.currentOutfitIndex = 0;
+      this.presetOutfitIndex = null;
+      this.presetItemIndex = null;
+      this.cleanup();
+      // 启动 Loading + WS（taskId 不变，复用同一会话）
+      this.loading = new AiOutfitLoading();
+      this.loading.show();
+      this.startWS();
+      // 安全兜底：30s 后若仍无结果，解除 generating（防止卡死）
+      // P1 修复：跟踪 setTimeout 引用，cleanup 时统一清除
+      this._timeouts.push(setTimeout(() => {
+        if (this.generating && !this.result) {
+          this.generating = false;
+          if (this.loading) this.loading.hide();
+          util.toast('反馈调整超时，请稍后重试', 'warning');
+        }
+      }, 30000));
+    },
+  },
+});
+</script>
+</body>
+</html>

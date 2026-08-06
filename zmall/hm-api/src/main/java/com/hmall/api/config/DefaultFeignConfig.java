@@ -56,4 +56,24 @@ public class DefaultFeignConfig {
     public SocialClientFallbackFactory socialClientFallbackFactory(){
         return new SocialClientFallbackFactory();
     }
+
+    @Bean
+    public QuotaClientFallbackFactory quotaClientFallbackFactory(){
+        return new QuotaClientFallbackFactory();
+    }
+
+    @Bean
+    public WardrobeClientFallbackFactory wardrobeClientFallbackFactory(){
+        return new WardrobeClientFallbackFactory();
+    }
+
+    @Bean
+    public SkuClientFallbackFactory skuClientFallbackFactory(){
+        return new SkuClientFallbackFactory();
+    }
+
+    @Bean
+    public BodyProfileClientFallbackFactory bodyProfileClientFallbackFactory(){
+        return new BodyProfileClientFallbackFactory();
+    }
 }

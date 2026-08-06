@@ -96,6 +96,7 @@ public class WebUtils {
      * @param queries
      * @return
      */
+    @SuppressWarnings("unchecked")
     public  static <T> String getParameters(final Map<String, T> queries) {
         StringBuilder buffer = new StringBuilder();
         for (Map.Entry<String, T> entry : queries.entrySet()) {
@@ -118,7 +119,7 @@ public class WebUtils {
      * @return
      */
     public static String getUri(String url){
-        if(StringUtils.isEmpty(url)) {
+        if(!StringUtils.hasText(url)) {
             return null;
         }
 

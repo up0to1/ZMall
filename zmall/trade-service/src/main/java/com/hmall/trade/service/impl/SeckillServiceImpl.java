@@ -11,10 +11,12 @@ import com.hmall.api.dto.SeckillItemDTO;
 import com.hmall.api.vo.SeckillCouponVO;
 import com.hmall.api.vo.SeckillItemVO;
 import com.hmall.common.exception.BadRequestException;
+import com.hmall.common.exception.BizIllegalException;
 import com.hmall.common.config.RedisConstants;
 import com.hmall.common.config.RedisIdWorker;
 import com.hmall.common.constants.MqConstants;
 import com.hmall.common.utils.RabbitMqHelper;
+import com.hmall.common.utils.UserContext;
 import com.hmall.trade.domain.dto.SeckillOrderMessage;
 import com.hmall.trade.domain.dto.SeckillResult;
 import com.hmall.trade.domain.po.Coupon;
@@ -36,6 +38,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -198,9 +201,53 @@ public class SeckillServiceImpl implements ISeckillService {
 
     // ===== Admin: 秒杀商品管理 =====
 
+    /**
+     * 秒杀商品所有权校验
+     * <p>商家只能操作自己 creater=userId 的商品，禁止越权操作他人商品的秒杀设置。
+     */
+    private void checkSeckillItemOwnership(Long itemId) {
+        if (itemId == null) {
+            return;
+        }
+        Long currentUserId = UserContext.getUser();
+        if (currentUserId == null) {
+            return;
+        }
+        ItemDTO item = itemClient.queryItemById(itemId);
+        if (item == null) {
+            return; // 商品不存在交给上层处理
+        }
+        if (item.getCreater() == null || !item.getCreater().equals(currentUserId)) {
+            throw new BizIllegalException("无权操作他人商品的秒杀设置: itemId=" + itemId);
+        }
+    }
+
+    /**
+     * 秒杀优惠券所有权校验
+     * <p>商家只能操作自己 creater=userId 的优惠券，禁止越权操作他人优惠券的秒杀设置。
+     */
+    private void checkSeckillCouponOwnership(Long couponId) {
+        if (couponId == null) {
+            return;
+        }
+        Long currentUserId = UserContext.getUser();
+        if (currentUserId == null) {
+            return;
+        }
+        Coupon coupon = couponMapper.selectById(couponId);
+        if (coupon == null) {
+            return; // 优惠券不存在交给上层处理
+        }
+        if (coupon.getCreater() == null || !coupon.getCreater().equals(currentUserId)) {
+            throw new BizIllegalException("无权操作他人优惠券的秒杀设置: couponId=" + couponId);
+        }
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void createSeckill(SeckillItemDTO dto) {
+        // 所有权校验：只能为自己的商品设置秒杀
+        checkSeckillItemOwnership(dto.getItemId());
         // 校验商品必须是秒杀商品
         ItemDTO item = itemClient.queryItemById(dto.getItemId());
         if (item == null) {
@@ -314,6 +361,8 @@ public class SeckillServiceImpl implements ISeckillService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateSeckill(SeckillItemDTO dto) {
+        // 所有权校验：只能更新自己商品的秒杀设置
+        checkSeckillItemOwnership(dto.getItemId());
         // 校验秒杀库存不能超过商品库存
         ItemDTO item = itemClient.queryItemById(dto.getItemId());
         if (item != null && dto.getSeckillStock() != null && item.getStock() != null && dto.getSeckillStock() > item.getStock()) {
@@ -371,6 +420,8 @@ public class SeckillServiceImpl implements ISeckillService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateSeckillStock(Long itemId, Integer stock) {
+        // 所有权校验：只能更新自己商品的秒杀库存
+        checkSeckillItemOwnership(itemId);
         SeckillItem old = seckillItemMapper.selectById(itemId);
         int oldStock = old != null && old.getSeckillStock() != null ? old.getSeckillStock() : 0;
         SeckillItem seckillItem = new SeckillItem();
@@ -384,7 +435,7 @@ public class SeckillServiceImpl implements ISeckillService {
 
     @Override
     public List<SeckillItemVO> listSeckillItems() {
-        // 只查询秒杀商品（item_type=2）的预热信息
+        // 只查询秒杀商品（item_type=2）的预热信息（前台公开接口，不做商家过滤）
         List<SeckillItem> items = seckillItemMapper.selectList(null);
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         return items.stream()
@@ -418,7 +469,53 @@ public class SeckillServiceImpl implements ISeckillService {
     }
 
     @Override
+    public List<SeckillItemVO> listSeckillItemsForAdmin() {
+        // 按商家过滤：先查当前商家的所有 itemId，再筛选秒杀记录
+        Long merchantId = UserContext.getUser();
+        if (merchantId == null) {
+            return Collections.emptyList();
+        }
+        List<Long> merchantItemIds = itemClient.queryItemIdsByCreater(merchantId);
+        if (merchantItemIds == null || merchantItemIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<SeckillItem> items = seckillItemMapper.selectList(
+                new LambdaQueryWrapper<SeckillItem>().in(SeckillItem::getItemId, merchantItemIds));
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return items.stream()
+                .map(item -> {
+                    ItemDTO itemDTO = itemClient.queryItemById(item.getItemId());
+                    if (itemDTO == null || itemDTO.getItemType() == null || itemDTO.getItemType() != 2) {
+                        return null;
+                    }
+                    SeckillItemVO vo = new SeckillItemVO();
+                    vo.setItemId(item.getItemId());
+                    vo.setItemName(itemDTO.getName());
+                    vo.setImage(itemDTO.getImage());
+                    vo.setPrice(itemDTO.getPrice());
+                    vo.setItemType(itemDTO.getItemType());
+                    vo.setSeckillStock(item.getSeckillStock());
+                    vo.setSeckillPrice(item.getSeckillPrice());
+                    vo.setMaxPerUser(item.getMaxPerUser() != null ? item.getMaxPerUser() : 1);
+                    vo.setRushBeginTime(item.getRushBeginTime() != null ? item.getRushBeginTime().format(formatter) : null);
+                    vo.setRushEndTime(item.getRushEndTime() != null ? item.getRushEndTime().format(formatter) : null);
+                    String stockKey = RedisConstants.SECKILL_STOCK_KEY + item.getItemId();
+                    String redisStock = stringRedisTemplate.opsForValue().get(stockKey);
+                    if (redisStock != null) {
+                        vo.setPreheatStatus(1);
+                        vo.setRedisStock(Integer.parseInt(redisStock));
+                    } else {
+                        vo.setPreheatStatus(0);
+                        vo.setRedisStock(null);
+                    }
+                    return vo;
+                }).filter(Objects::nonNull).collect(Collectors.toList());
+    }
+
+    @Override
     public void preheatStockToRedis(Long itemId) {
+        // 所有权校验：只能预热自己商品的秒杀库存
+        checkSeckillItemOwnership(itemId);
         SeckillItem seckillItem = seckillItemMapper.selectById(itemId);
         if (seckillItem == null) {
             throw new BadRequestException("秒杀商品不存在: itemId=" + itemId);
@@ -471,6 +568,8 @@ public class SeckillServiceImpl implements ISeckillService {
 
     @Override
     public void clearPreheat(Long itemId) {
+        // 所有权校验：只能清除自己商品的秒杀预热
+        checkSeckillItemOwnership(itemId);
         stringRedisTemplate.delete(RedisConstants.SECKILL_STOCK_KEY + itemId);
         stringRedisTemplate.delete(RedisConstants.SECKILL_ORDER_KEY + itemId);
         stringRedisTemplate.delete(RedisConstants.SECKILL_ITEM_KEY + itemId);
@@ -483,6 +582,8 @@ public class SeckillServiceImpl implements ISeckillService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void convertToNormalItem(Long itemId) {
+        // 所有权校验：只能转换自己的秒杀商品
+        checkSeckillItemOwnership(itemId);
         // 1. 清除预热
         clearPreheat(itemId);
         // 2. 删除秒杀商品记录
@@ -567,6 +668,8 @@ public class SeckillServiceImpl implements ISeckillService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void createSeckillCoupon(SeckillCouponDTO dto) {
+        // 所有权校验：只能为自己的优惠券设置秒杀
+        checkSeckillCouponOwnership(dto.getCouponId());
         // 校验优惠券必须是秒杀券
         Coupon coupon = couponMapper.selectById(dto.getCouponId());
         if (coupon == null) {
@@ -637,12 +740,18 @@ public class SeckillServiceImpl implements ISeckillService {
         }
 
         int count = 0;
+        Long currentUserId = UserContext.getUser();
         for (Long couponId : request.getCouponIds()) {
             try {
                 // 1. 将优惠券类型设为秒杀券(couponType=2)
                 Coupon coupon = couponMapper.selectById(couponId);
                 if (coupon == null) {
                     log.warn("优惠券不存在: couponId={}", couponId);
+                    continue;
+                }
+                // 商家过滤：跳过非自己创建的优惠券
+                if (currentUserId != null && (coupon.getCreater() == null || !coupon.getCreater().equals(currentUserId))) {
+                    log.warn("无权操作他人优惠券，跳过: couponId={}, creater={}", couponId, coupon.getCreater());
                     continue;
                 }
                 if (coupon.getCouponType() == null || coupon.getCouponType() != 2) {
@@ -687,6 +796,8 @@ public class SeckillServiceImpl implements ISeckillService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateSeckillCouponStock(Long couponId, Integer stock) {
+        // 所有权校验：只能更新自己优惠券的秒杀库存
+        checkSeckillCouponOwnership(couponId);
         SeckillCoupon seckillCoupon = seckillCouponMapper.selectById(couponId);
         if (seckillCoupon == null) {
             throw new BadRequestException("秒杀优惠券预热信息不存在");
@@ -701,13 +812,18 @@ public class SeckillServiceImpl implements ISeckillService {
 
     @Override
     public List<SeckillCouponVO> listSeckillCoupons() {
-        // 只查询秒杀券（coupon_type=2）的预热信息
+        // 按商家过滤：只返回当前商家创建的秒杀券预热信息
+        Long merchantId = UserContext.getUser();
         List<SeckillCoupon> coupons = seckillCouponMapper.selectList(null);
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         return coupons.stream().map(c -> {
             Coupon coupon = couponMapper.selectById(c.getCouponId());
             if (coupon == null || coupon.getCouponType() == null || coupon.getCouponType() != 2) {
                 return null; // 过滤掉非秒杀券
+            }
+            // 商家过滤：只返回当前商家创建的优惠券
+            if (merchantId != null && (coupon.getCreater() == null || !coupon.getCreater().equals(merchantId))) {
+                return null;
             }
             SeckillCouponVO vo = new SeckillCouponVO();
             vo.setCouponId(c.getCouponId());
@@ -734,6 +850,8 @@ public class SeckillServiceImpl implements ISeckillService {
 
     @Override
     public void preheatCouponStockToRedis(Long couponId) {
+        // 所有权校验：只能预热自己的秒杀优惠券
+        checkSeckillCouponOwnership(couponId);
         SeckillCoupon seckillCoupon = seckillCouponMapper.selectById(couponId);
         if (seckillCoupon == null) {
             throw new BadRequestException("秒杀优惠券预热信息不存在: couponId=" + couponId);
@@ -766,6 +884,8 @@ public class SeckillServiceImpl implements ISeckillService {
 
     @Override
     public void clearCouponPreheat(Long couponId) {
+        // 所有权校验：只能清除自己优惠券的秒杀预热
+        checkSeckillCouponOwnership(couponId);
         stringRedisTemplate.delete(RedisConstants.SECKILL_COUPON_STOCK_KEY + couponId);
         stringRedisTemplate.delete(RedisConstants.SECKILL_COUPON_ORDER_KEY + couponId);
         stringRedisTemplate.delete(RedisConstants.SECKILL_COUPON_KEY + couponId);
@@ -779,6 +899,8 @@ public class SeckillServiceImpl implements ISeckillService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void convertToNormalCoupon(Long couponId) {
+        // 所有权校验：只能转换自己的秒杀优惠券
+        checkSeckillCouponOwnership(couponId);
         // 1. 清除预热
         clearCouponPreheat(couponId);
         // 2. 删除秒杀优惠券记录
@@ -971,12 +1093,14 @@ public class SeckillServiceImpl implements ISeckillService {
 
     /**
      * 处理秒杀商品到期：转为普通商品，恢复原价
+     * <p>定时任务是系统级运维操作，不应受商家权限校验限制，因此走 item-service 的内部接口
+     * （/items/internal/**，网关层禁止外部访问，仅微服务间通过 FeignClient 调用）。
      */
     @Override
     public void handleSeckillItemExpire(Long itemId) {
         try {
-            // 1. 将商品类型从秒杀(2)改为普通(1)
-            itemClient.updateItemType(itemId, 1);
+            // 1. 将商品类型从秒杀(2)改为普通(1)——系统级操作，跳过商家所有权校验
+            itemClient.updateItemTypeInternal(itemId, 1);
             // 2. 清除Redis预热数据
             clearPreheat(itemId);
             // 3. 删除秒杀商品记录

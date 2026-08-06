@@ -53,4 +53,14 @@ public interface SocialClient {
 
     @GetMapping("/comments/admin/stats")
     CommentStatsVO getCommentStats();
+
+    // ========== 商家店铺名查询（内部接口，供 item-service AI 模特图水印用）==========
+
+    /**
+     * 根据商家用户ID查询店铺名
+     * 2026-07-19 新增：item-service AiTaskServiceImpl.createSystemModelImage 调用，
+     * 给商家上传的模特图加店铺名水印（防滥用）
+     */
+    @GetMapping("/merchant/profile/shop-name")
+    String getShopNameByUserId(@RequestParam("userId") Long userId);
 }

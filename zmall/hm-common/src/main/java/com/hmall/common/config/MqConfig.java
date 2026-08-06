@@ -3,6 +3,8 @@ package com.hmall.common.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmall.common.utils.RabbitMqHelper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.ExchangeBuilder;
+import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
@@ -50,5 +52,17 @@ public class MqConfig {
                 return bean;
             }
         };
+    }
+
+    /**
+     * 用户行为事件 Exchange（Phase 2.5 个性化推荐画像数据源）
+     *
+     * 统一在 hm-common 声明，确保 item/cart/trade 三个服务启动时 exchange 已存在，
+     * 避免 RabbitMQ 重启后 Java 先于 Python 发消息导致 channel error。
+     * Queue + Binding 由 Python UserBehaviorMqConsumer 启动时声明。
+     */
+    @Bean
+    public TopicExchange userBehaviorExchange() {
+        return ExchangeBuilder.topicExchange("user.behavior.exchange").durable(true).build();
     }
 }

@@ -47,14 +47,15 @@ const ZM = {
         instance.interceptors.response.use(
             res => res.data,
             err => {
-                if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-                    // token无效/过期或无权限，清除登录信息并跳转
-                    const msg = err.response.status === 403 ? '无权限访问，请重新登录' : '登录已过期，请重新登录';
+                if (err.response && err.response.status === 401) {
+                    // 401：token 无效/过期，清除登录信息并跳转
                     ZM.clearLogin();
-                    alert(msg);
+                    alert('登录已过期，请重新登录');
                     window.location.href = '/login.html';
-                    return new Promise(() => {}); // 阻止后续catch执行
+                    // M10 修复：返回 reject 而非 pending Promise，避免 Promise 链挂起
+                    return Promise.reject(new Error('UNAUTHORIZED'));
                 }
+                // 403：业务无权限（如非创建者无权编辑），交由调用方处理
                 return Promise.reject(err);
             }
         );

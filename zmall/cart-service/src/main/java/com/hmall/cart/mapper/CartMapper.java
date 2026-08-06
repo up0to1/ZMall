@@ -15,6 +15,9 @@ import org.apache.ibatis.annotations.Update;
  */
 public interface CartMapper extends BaseMapper<Cart> {
 
-    @Update("UPDATE cart SET num = num + 1 WHERE user_id = #{userId} AND item_id = #{itemId}")
-    void updateNum(@Param("itemId") Long itemId, @Param("userId") Long userId);
+    /**
+     * 按 itemId+userId 累加数量（兼容旧调用，skuId 为空时匹配 sku_id IS NULL 的记录）
+     */
+    @Update("UPDATE cart SET num = num + 1 WHERE user_id = #{userId} AND item_id = #{itemId} AND (sku_id <=> #{skuId})")
+    void updateNum(@Param("itemId") Long itemId, @Param("skuId") Long skuId, @Param("userId") Long userId);
 }

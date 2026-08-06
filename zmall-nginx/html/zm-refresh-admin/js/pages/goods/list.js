@@ -13,7 +13,6 @@ Vue.component('goods-list-page', {
                 <el-select v-model="search.status" placeholder="商品状态" size="small" clearable>
                     <el-option label="已上架" :value="1"></el-option>
                     <el-option label="已下架" :value="2"></el-option>
-                    <el-option label="已删除" :value="3"></el-option>
                 </el-select>
                 <el-select v-model="search.itemType" placeholder="商品类型" size="small" clearable>
                     <el-option label="普通商品" :value="1"></el-option>
@@ -21,6 +20,10 @@ Vue.component('goods-list-page', {
                 </el-select>
                 <el-button type="primary" size="small" icon="el-icon-search" @click="currentPage=1;loadList()">搜索</el-button>
                 <el-button size="small" @click="resetSearch">重置</el-button>
+                <el-button :type="search.onlyMine ? 'success' : ''" size="small" icon="el-icon-user" @click="toggleOnlyMine">
+                    {{ search.onlyMine ? '仅看自己商品' : '查看全平台商品' }}
+                </el-button>
+                <span v-if="!search.onlyMine" style="font-size:12px;color:#909399;">（仅可查看他人商品，不可修改/删除/上下架）</span>
             </div>
             <!-- 表格 -->
             <el-table :data="tableData" border stripe v-loading="loading" style="width:100%">
@@ -51,17 +54,17 @@ Vue.component('goods-list-page', {
                         </el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column label="操作" width="220" align="center" fixed="right">
+                <el-table-column label="操作" width="280" align="center" fixed="right">
                     <template slot-scope="scope">
                         <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;">
-                            <el-button size="mini" @click="handleEdit(scope.row)">编辑</el-button>
-                            <el-button size="mini" :type="scope.row.status===1?'warning':'success'" @click="toggleStatus(scope.row)">
+                            <el-button size="mini" @click="handleEdit(scope.row)" :disabled="!isOwner(scope.row)">编辑</el-button>
+                            <el-button size="mini" :type="scope.row.status===1?'warning':'success'" @click="toggleStatus(scope.row)" :disabled="!isOwner(scope.row)">
                                 {{scope.row.status===1?'下架':'上架'}}
                             </el-button>
-                            <el-button size="mini" :type="scope.row.itemType===2?'':'danger'" @click="handleSetSeckill(scope.row)">
+                            <el-button size="mini" :type="scope.row.itemType===2?'':'danger'" @click="handleSetSeckill(scope.row)" :disabled="!isOwner(scope.row)">
                                 {{scope.row.itemType===2?'秒杀设置':'设为秒杀'}}
                             </el-button>
-                            <el-button size="mini" type="danger" @click="handleDelete(scope.row)">删除</el-button>
+                            <el-button size="mini" type="danger" @click="handleDelete(scope.row)" :disabled="!isOwner(scope.row)">删除</el-button>
                         </div>
                     </template>
                 </el-table-column>
@@ -74,7 +77,7 @@ Vue.component('goods-list-page', {
         </div>
 
         <!-- 添加/编辑弹窗 -->
-        <el-dialog :title="dialogTitle" :visible.sync="dialogVisible" width="650px" :close-on-click-modal="false">
+        <el-dialog :title="dialogTitle" :visible.sync="dialogVisible" width="800px" :close-on-click-modal="false">
             <el-form :model="form" :rules="formRules" ref="form" label-width="100px">
                 <el-form-item label="商品名称" prop="name">
                     <el-input v-model="form.name" placeholder="请输入商品名称"></el-input>
@@ -87,35 +90,109 @@ Vue.component('goods-list-page', {
                 <el-form-item label="品牌" prop="brand">
                     <el-input v-model="form.brand" placeholder="请输入品牌"></el-input>
                 </el-form-item>
+                <el-form-item label="颜色">
+                    <el-select v-model="form.color" placeholder="请选择主色" clearable style="width:100%">
+                        <el-option v-for="c in colorOptions" :key="c" :label="c" :value="c"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="季节">
+                    <el-select v-model="form.season" placeholder="请选择季节" clearable style="width:100%">
+                        <el-option label="春季" value="spring"></el-option>
+                        <el-option label="夏季" value="summer"></el-option>
+                        <el-option label="秋季" value="autumn"></el-option>
+                        <el-option label="冬季" value="winter"></el-option>
+                        <el-option label="四季通用" value="all"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="风格标签">
+                    <el-select v-model="form.styleTags" multiple filterable allow-create
+                               default-first-option placeholder="选择或输入风格标签"
+                               style="width:100%">
+                        <el-option v-for="t in styleTagOptions" :key="t" :label="t" :value="t"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="尺码">
+                    <el-select v-model="form.sizes" multiple filterable allow-create
+                               default-first-option placeholder="选择或输入尺码（如 S/M/L/XL）"
+                               style="width:100%">
+                        <el-option v-for="s in sizeOptions" :key="s" :label="s" :value="s"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="材质">
+                    <el-input v-model="form.material" placeholder="如 纯棉、涤纶、皮革"></el-input>
+                </el-form-item>
                 <el-form-item label="价格" prop="price">
                     <el-input-number v-model="form.price" :min="0" :precision="2" style="width:100%"></el-input-number>
+                </el-form-item>
+                <el-form-item label="成本价">
+                    <el-input-number v-model="form.costPrice" :min="0" :precision="2" style="width:100%" placeholder="用于利润统计，前台不展示"></el-input-number>
+                    <div style="font-size:12px;color:#909399;margin-top:4px;">仅后台统计用，前台用户不可见；下单时快照到订单详情</div>
                 </el-form-item>
                 <el-form-item label="库存" prop="stock">
                     <el-input-number v-model="form.stock" :min="0" style="width:100%"></el-input-number>
                 </el-form-item>
-                <el-form-item label="商品图片">
+                <el-divider content-position="left">图片信息</el-divider>
+                <el-form-item label="主图列表">
                     <div>
                         <el-upload
-                            class="image-uploader"
                             action="/api/items/admin/upload"
                             name="file"
                             :headers="uploadHeaders"
-                            :show-file-list="false"
-                            :on-success="handleUploadSuccess"
+                            list-type="picture-card"
+                            :file-list="mainImageFileList"
+                            :on-success="handleMainImageSuccess"
                             :on-error="handleUploadError"
+                            :on-remove="handleMainImageRemove"
                             :before-upload="beforeUpload"
-                            accept="image/*">
-                            <img v-if="form.image" :src="getImageUrl(form.image)" class="uploaded-image" style="max-width:200px;max-height:150px;display:block;">
-                            <el-button v-else size="small" type="primary" icon="el-icon-upload2">上传图片</el-button>
+                            accept="image/*"
+                            :limit="9"
+                            :on-exceed="() => $message.warning('最多上传9张主图')">
+                            <i class="el-icon-plus"></i>
                         </el-upload>
-                        <div v-if="form.image" style="margin-top:8px;">
-                            <el-button size="mini" type="danger" @click="form.image=''">删除图片</el-button>
-                            <span style="font-size:12px;color:#909399;margin-left:8px;">{{form.image}}</span>
-                        </div>
+                        <div style="font-size:12px;color:#909399;margin-top:4px;">最多9张，第一张为默认主图（兼容旧版 image 字段）</div>
                     </div>
                 </el-form-item>
+                <el-form-item label="详情图列表">
+                    <div>
+                        <el-upload
+                            action="/api/items/admin/upload"
+                            name="file"
+                            :headers="uploadHeaders"
+                            list-type="picture-card"
+                            :file-list="detailImageFileList"
+                            :on-success="handleDetailImageSuccess"
+                            :on-error="handleUploadError"
+                            :on-remove="handleDetailImageRemove"
+                            :before-upload="beforeUpload"
+                            accept="image/*"
+                            :limit="20"
+                            :on-exceed="() => $message.warning('详情图最多20张')">
+                            <i class="el-icon-plus"></i>
+                        </el-upload>
+                        <div style="font-size:12px;color:#909399;margin-top:4px;">商品详情页轮播展示，最多20张</div>
+                    </div>
+                </el-form-item>
+                <el-divider content-position="left">商品属性</el-divider>
+                <el-form-item label="适合性别">
+                    <el-select v-model="form.targetGender" placeholder="请选择" clearable style="width:100%">
+                        <el-option label="男装" value="male"></el-option>
+                        <el-option label="女装" value="female"></el-option>
+                        <el-option label="中性" value="unisex"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="产地">
+                    <el-input v-model="form.origin" placeholder="如 广东省深圳市"></el-input>
+                </el-form-item>
+                <el-form-item label="重量(克)">
+                    <el-input-number v-model="form.weight" :min="0" style="width:100%" placeholder="含包装重量"></el-input-number>
+                </el-form-item>
+                <el-form-item label="养护说明">
+                    <el-input v-model="form.careInstructions" placeholder="如 服装：30度以下机洗；茶叶：避光防潮；电子：避免进水"></el-input>
+                </el-form-item>
                 <el-form-item label="商品描述">
-                    <el-input v-model="form.comment" type="textarea" :rows="3" placeholder="请输入商品描述"></el-input>
+                    <el-input v-model="form.description" type="textarea" :rows="3"
+                              maxlength="500" show-word-limit
+                              placeholder="请输入商品详细描述（前台商品详情页展示）"></el-input>
                 </el-form-item>
                 <el-form-item label="商品类型">
                     <el-radio-group v-model="form.itemType">
@@ -193,12 +270,29 @@ Vue.component('goods-list-page', {
             total: 0,
             currentPage: 1,
             pageSize: 10,
-            search: { name: '', status: null, itemType: null },
+            search: { name: '', status: null, itemType: null, onlyMine: false },
             categories: [],
             dialogVisible: false,
             dialogTitle: '添加商品',
             submitLoading: false,
-            form: { id: null, name: '', category: '', brand: '', price: 0, stock: 0, image: '', comment: '', itemType: 1 },
+            form: { id: null, name: '', category: '', brand: '', price: 0, costPrice: 0, stock: 0, image: '',
+                   color: '', season: '', styleTags: [], sizes: [], material: '',
+                   description: '', itemType: 1,
+                   mainImages: [], detailImages: [],
+                   targetGender: '', careInstructions: '', origin: '', weight: null, spuCode: '' },
+            // el-upload picture-card 模式所需的 fileList（由 mainImages/detailImages 同步）
+            mainImageFileList: [],
+            detailImageFileList: [],
+            // 颜色选项（中文，与 AI 随心搭 color 过滤一致）
+            colorOptions: ['红色','橙色','黄色','绿色','青色','蓝色','紫色','粉色',
+                           '黑色','白色','灰色','棕色','卡其色','米色','花色','金色','银色','其他'],
+            // 风格标签预设选项（可自定义输入）
+            styleTagOptions: ['休闲','通勤','运动','商务','街头','甜美','简约','复古',
+                              '欧美','日系','韩系','中国风','民族风','性感','可爱','成熟'],
+            // 尺码预设选项（可自定义输入）
+            sizeOptions: ['XS','S','M','L','XL','XXL','XXXL',
+                          '26','27','28','29','30','31','32','34','36','38','40',
+                          '均码','35','36','37','38','39','40','41','42','43','44'],
             formRules: {
                 name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
                 category: [{ required: true, message: '请选择分类', trigger: 'change' }],
@@ -251,15 +345,7 @@ Vue.component('goods-list-page', {
             };
         }
     },
-    watch: {
-        currentPage(val) {
-            if (val > this.totalPages) {
-                this.$nextTick(() => { this.currentPage = this.totalPages; });
-            } else if (val < 1) {
-                this.$nextTick(() => { this.currentPage = 1; });
-            }
-        }
-    },
+    watch: {},
     mounted() {
         this.loadList();
         this.loadCategories();
@@ -285,16 +371,34 @@ Vue.component('goods-list-page', {
             }
             return true;
         },
-        handleUploadSuccess(res) {
-            // 后端直接返回文件路径字符串
-            if (typeof res === 'string' && res) {
-                this.form.image = res;
-                this.$message.success('图片上传成功');
-            } else if (res && res.data) {
-                this.form.image = res.data;
-                this.$message.success('图片上传成功');
-            } else {
-                this.$message.error('图片上传失败');
+        handleMainImageSuccess(res) {
+            const url = (typeof res === 'string' && res) ? res : (res && res.data) ? res.data : null;
+            if (!url) { this.$message.error('图片上传失败'); return; }
+            if (!Array.isArray(this.form.mainImages)) this.form.mainImages = [];
+            this.form.mainImages.push(url);
+            this.mainImageFileList.push({ name: 'main_' + Date.now(), url: this.getImageUrl(url) });
+            this.$message.success('主图上传成功');
+        },
+        handleMainImageRemove(file) {
+            const idx = this.mainImageFileList.indexOf(file);
+            if (idx >= 0) {
+                this.mainImageFileList.splice(idx, 1);
+                this.form.mainImages.splice(idx, 1);
+            }
+        },
+        handleDetailImageSuccess(res) {
+            const url = (typeof res === 'string' && res) ? res : (res && res.data) ? res.data : null;
+            if (!url) { this.$message.error('图片上传失败'); return; }
+            if (!Array.isArray(this.form.detailImages)) this.form.detailImages = [];
+            this.form.detailImages.push(url);
+            this.detailImageFileList.push({ name: 'detail_' + Date.now(), url: this.getImageUrl(url) });
+            this.$message.success('详情图上传成功');
+        },
+        handleDetailImageRemove(file) {
+            const idx = this.detailImageFileList.indexOf(file);
+            if (idx >= 0) {
+                this.detailImageFileList.splice(idx, 1);
+                this.form.detailImages.splice(idx, 1);
             }
         },
         handleUploadError() {
@@ -306,6 +410,8 @@ Vue.component('goods-list-page', {
             if (this.search.name) params.name = this.search.name;
             if (this.search.status !== null && this.search.status !== '') params.status = this.search.status;
             if (this.search.itemType !== null && this.search.itemType !== '') params.itemType = this.search.itemType;
+            // onlyMine=true 仅看自己商品；false/不传 看全平台商品（CUD 操作按钮自动禁用）
+            if (this.search.onlyMine) params.onlyMine = true;
             ZM.http.get('/items/admin/page', { params }).then(res => {
                 this.loading = false;
                 let data = res;
@@ -321,6 +427,12 @@ Vue.component('goods-list-page', {
                 } else {
                     this.tableData = [];
                     this.total = 0;
+                }
+                // 边界检查：当前页超出总页数时回退到最后一页（防止越界后无法返回）
+                const tp = Math.ceil(this.total / this.pageSize) || 1;
+                if (this.currentPage > tp) {
+                    this.currentPage = tp;
+                    this.loadList();
                 }
             }).catch(err => {
                 this.loading = false;
@@ -339,18 +451,71 @@ Vue.component('goods-list-page', {
             }).catch(() => {});
         },
         resetSearch() {
-            this.search = { name: '', status: null, itemType: null };
+            this.search = { name: '', status: null, itemType: null, onlyMine: false };
             this.currentPage = 1;
             this.loadList();
         },
+        toggleOnlyMine() {
+            this.search.onlyMine = !this.search.onlyMine;
+            this.currentPage = 1;
+            this.loadList();
+        },
+        // 判断当前商品是否属于登录商家（用于禁用他人商品的操作按钮）
+        isOwner(row) {
+            if (!row) return false;
+            // onlyMine=true 时后端已按商家过滤，必定是自己商品
+            if (this.search.onlyMine) return true;
+            // 否则对比 creater 与当前登录用户ID
+            const user = (typeof ZM !== 'undefined' && ZM.getUser) ? ZM.getUser() : {};
+            return row.creater != null && row.creater === user.userId;
+        },
         handleAdd() {
             this.dialogTitle = '添加商品';
-            this.form = { id: null, name: '', category: '', brand: '', price: 0, stock: 0, image: '', comment: '', itemType: 1, seckillPrice: 0, seckillStock: 10, seckillMaxPerUser: 1, seckillBegin: null, seckillEnd: null };
+            this.form = { id: null, name: '', category: '', brand: '', price: 0, costPrice: 0, stock: 0, image: '',
+                          color: '', season: '', styleTags: [], sizes: [], material: '',
+                          description: '', itemType: 1,
+                          mainImages: [], detailImages: [],
+                          targetGender: '', careInstructions: '', origin: '', weight: null, spuCode: '',
+                          seckillPrice: 0, seckillStock: 10, seckillMaxPerUser: 1, seckillBegin: null, seckillEnd: null };
+            this.mainImageFileList = [];
+            this.detailImageFileList = [];
             this.dialogVisible = true;
         },
         handleEdit(row) {
             this.dialogTitle = '编辑商品';
-            this.form = { ...row, price: row.price / 100, seckillPrice: 0, seckillStock: 10, seckillMaxPerUser: 1, seckillBegin: null, seckillEnd: null };
+            // 解析 styleTags/sizes：后端存储为 JSON 字符串，前端 el-select multiple 需要数组
+            let styleTags = row.styleTags;
+            if (typeof styleTags === 'string') {
+                try { styleTags = JSON.parse(styleTags); } catch (e) { styleTags = []; }
+            }
+            if (!Array.isArray(styleTags)) styleTags = [];
+            let sizes = row.sizes;
+            if (typeof sizes === 'string') {
+                try { sizes = JSON.parse(sizes); } catch (e) { sizes = []; }
+            }
+            if (!Array.isArray(sizes)) sizes = [];
+            // 解析 mainImages/detailImages：后端存储为 JSON 字符串，前端需要数组
+            let mainImages = row.mainImages;
+            if (typeof mainImages === 'string') {
+                try { mainImages = JSON.parse(mainImages); } catch (e) { mainImages = []; }
+            }
+            if (!Array.isArray(mainImages)) mainImages = [];
+            // 兼容旧数据：若 mainImages 为空但 image 有值，用 image 作为唯一主图
+            if (mainImages.length === 0 && row.image) {
+                mainImages = [row.image];
+            }
+            let detailImages = row.detailImages;
+            if (typeof detailImages === 'string') {
+                try { detailImages = JSON.parse(detailImages); } catch (e) { detailImages = []; }
+            }
+            if (!Array.isArray(detailImages)) detailImages = [];
+            this.form = { ...row, price: row.price / 100,
+                          costPrice: row.costPrice != null ? row.costPrice / 100 : 0,
+                          styleTags, sizes, mainImages, detailImages,
+                          seckillPrice: 0, seckillStock: 10, seckillMaxPerUser: 1, seckillBegin: null, seckillEnd: null };
+            // 同步 el-upload fileList（picture-card 模式需要 {name, url} 格式）
+            this.mainImageFileList = mainImages.map((url, i) => ({ name: 'main_' + i, url: this.getImageUrl(url) }));
+            this.detailImageFileList = detailImages.map((url, i) => ({ name: 'detail_' + i, url: this.getImageUrl(url) }));
             // 如果是秒杀商品，加载秒杀信息
             if (row.itemType === 2) {
                 ZM.http.get('/seckill/admin/item/list').then(res => {
@@ -403,6 +568,20 @@ Vue.component('goods-list-page', {
                 // 前端输入元，后端存储分
                 const data = { ...this.form };
                 data.price = Math.round(this.form.price * 100);
+                data.costPrice = Math.round((this.form.costPrice || 0) * 100);
+                // styleTags/sizes：前端数组 → 后端 JSON 字符串
+                data.styleTags = (this.form.styleTags && this.form.styleTags.length)
+                    ? JSON.stringify(this.form.styleTags) : null;
+                data.sizes = (this.form.sizes && this.form.sizes.length)
+                    ? JSON.stringify(this.form.sizes) : null;
+                // mainImages/detailImages：前端数组 → 后端 JSON 字符串
+                data.mainImages = (this.form.mainImages && this.form.mainImages.length)
+                    ? JSON.stringify(this.form.mainImages) : null;
+                data.detailImages = (this.form.detailImages && this.form.detailImages.length)
+                    ? JSON.stringify(this.form.detailImages) : null;
+                // image 字段兼容：取主图第一张（前台列表/搜索页仍用 image 字段展示）
+                data.image = (this.form.mainImages && this.form.mainImages.length > 0)
+                    ? this.form.mainImages[0] : (this.form.image || null);
                 const req = this.form.id
                     ? ZM.http.put('/items/admin', data)
                     : ZM.http.post('/items/admin', data);
@@ -456,7 +635,7 @@ Vue.component('goods-list-page', {
                 itemType: row.itemType || 1,
                 originalPrice: row.price,
                 currentStock: row.stock,
-                seckillPrice: row.price ? row.price / 100 * 0.8 / 100 : 0,
+                seckillPrice: row.price ? row.price / 100 * 0.8 : 0,
                 seckillStock: Math.min(10, row.stock || 10),
                 maxPerUser: 1,
                 rushBegin: null,
@@ -534,7 +713,7 @@ Vue.component('goods-list-page', {
         },
         cancelSeckill() {
             this.$confirm('确定要取消秒杀吗？商品将恢复为普通商品', '提示', { type: 'warning' }).then(() => {
-                ZM.http.put('/items/admin/itemType/' + this.itemSeckillForm.id + '/1').then(() => {
+                ZM.http.put('/seckill/admin/item/convert/' + this.itemSeckillForm.id).then(() => {
                     this.$message.success('已取消秒杀');
                     this.itemSeckillVisible = false;
                     this.loadList();

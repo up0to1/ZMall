@@ -32,7 +32,7 @@ Thumbs.db
 dependency-reduced-pom.xml
 
 # ===== Database SQL =====
-zmall/db/
+db/
 
 # ===== Logs =====
 zmall/logs/
@@ -44,8 +44,45 @@ zmall-nginx/logs/
 # ===== Nacos =====
 nacos/
 
+# ===== WorkBuddy（本地 AI 助手记忆，不上传）=====
+.workbuddy/
+
 # ===== Sentinel =====
 sentinel-dashboard.jar
 
 # ===== All resources directories =====
 **/resources/
+
+# ===== Python (zmall-ai) =====
+# 环境配置文件（含密码等敏感信息，不上传；.env.example 是示例文件，保留）
+.env
+**/.env
+# Python 编译缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+# 测试缓存
+.pytest_cache/
+.coverage
+htmlcov/
+# 类型检查缓存
+.mypy_cache/
+.pyre/
+
+# ===== 运行时上传数据（商品图/模特图，含用户数据，不上传）=====
+zmall-nginx/html/uploads/
+
+# ===== 内部创新方案文档（不上传）=====
+docs/AI随心搭Agent自动决策工具调用改造方案.md
+
+# ===== AI 核心创新代码（不完全开源，收窄范围）=====
+# LLM 提示词（多 Agent 决策 Prompt，最核心创意，不上传）
+zmall-ai/ai-models/app/prompts/
+# 模型封装（VTON 链式换装 / 图生图穿戴 / Embedding / LLM 调用细节，不上传）
+zmall-ai/shared/model_client/

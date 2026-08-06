@@ -1,827 +1,234 @@
-视频跳转：[《黑马商场-微服务开发与实战》](bilibili.com/video/BV1S142197x7?p=1)
-资料学习：[《微服务框架》](https://b11et3un53m.feishu.cn/wiki/PsyawI04ei2FQykqfcPcmd7Dnsc)
-参考项目：[黑马商城hmall](https://github.com/fangshuiyun/hmall)、[苍穹外卖](https://github.com/up0to1/sky-take-out)、[黑马点评](https://github.com/up0to1/Hm-dianping)
+# ZMall 潮流服装智能电商平台
 
-# 项目介绍
+## 项目介绍
 
-黑马商城是基于当下最流行的微服务架构开发的电商商城系统，旨在给用户一个高效，流畅的购物体验。项目融合了黑马的苍穹外卖、黑马点评、黑马商城的后端开发的设计思想，实现了**一个基于 **Spring Cloud** Alibaba 架构体系构建的分布式电商平台，包含用户商城前台、商家管理后台，从商品检索、购物车管理、订单交易到**高并发商品秒杀、优惠券秒杀**和**社交 Feed 流**的完整业务闭环，旨在提供**高性能、高可用**的电商解决方案。**
+自研项目，ai功能从产品思考到Coding实现，专注于潮流服装穿搭的电商平台，ZMall 是基于 **Spring Cloud Alibaba** 微服务架构构建的分布式电商平台，从用户自主挑衣服下单到agent帮用户挑衣服再到下单，衣橱捆绑用户的穿搭喜好，为 C 端用户提供完整的购物闭环，并为商家提供店铺运营与 AI 模特工具。系统前端包含**用户商城门户**、**商家管理后台**；后端由多个 Java 业务微服务与两个 Python AI 智能服务协同组成，AI 服务通过 RabbitMQ、WebSocket 、nacos 与 Java 核心服务联动。
 
-# 技术栈
+前期参考：视频学习：[《黑马商场-微服务开发与实战》](https://github.com/up0to1/ZMall/blob/main/bilibili.com/video/BV1S142197x7?p=1) 资料学习：[《微服务框架》](https://b11et3un53m.feishu.cn/wiki/PsyawI04ei2FQykqfcPcmd7Dnsc) 参考项目：[黑马商城hmall](https://github.com/fangshuiyun/hmall)、[苍穹外卖](https://github.com/up0to1/sky-take-out)、[黑马点评](https://github.com/up0to1/Hm-dianping)
 
-## Java 后端
+后期完善实现：
 
-- **SpringCloud**：微服务治理框架
-- **SpringBoot**：应用快速开发框架
-- **Gateway**：API 网关，统一入口与登录校验
+**业务功能**：商品检索浏览、购物车管理、订单交易与支付、优惠券（领取 / 购买 / 秒杀）、商家店铺与评价管理、社交 Feed 流推送，以及高并发商品秒杀、优惠券秒杀。
+
+**智能功能**：
+
+- **AI 随心搭**（用户端）：支持风格驱动、用户选定、商品驱动三种入口，依托 LangGraph 编排一次性直出换装结果，并提供多轮反馈、衣橱收藏、尺码推荐。
+- **AI 模特**（商家端）：商家选择商品与模特图，AI 链式换装生成商品展示图，支持链式 VTON、多换装、多姿势三种模式，可评分、发布并沉淀到系统模特图池。
+- **credits 积分配额体系**：统一计量 AI 功能用量，通过预扣 / 确认 / 回滚接口与钱包余额联动，保证并发计费可靠。
+
+**技术架构**：基于 Nacos 服务注册与配置中心；Gateway 统一鉴权与请求路由，承载 AI 实时推送的 WebSocket 反向代理；Redis 承担缓存预热与秒杀预减库存；RabbitMQ 承担 AI 任务下发、结果回流与商品库同步；Qdrant 向量库支撑穿搭语义检索与个性化画像融合。
+
+## 技术栈
+
+### 前端
+
+- **Vue 2 / Element UI**：商家后台与新款管理后台
+- **Nginx**：三站点静态托管、反向代理与 WebSocket 透传
+
+### Java 后端
+
+- **Spring Cloud / Spring Boot**：微服务治理与应用开发框架
+- **Gateway**：API 网关，统一入口、限流与登录校验
+- **OpenFeign**：声明式服务间远程调用
 - **Sentinel**：流量控制、熔断降级、线程隔离
-- **Seata**：分布式事务解决方案
+- **Seata**：分布式事务（AT 模式）
 - **MyBatis-Plus**：ORM 框架，简化单表 CRUD
 
-## 中间件
+### 中间件
 
-- **Redis**：缓存、分布式锁、热点 Key 预热
+- **Redis**：缓存、分布式锁、热点 Key 预热、配额冻结
 - **Nacos**：服务注册与配置中心
-- **RabbitMQ**：消息队列，异步解耦与延迟消息
+- **RabbitMQ**：消息队列，任务下发、结果回流、商品库同步、延迟与死信处理
 - **Docker**：容器化部署
 
-## Python 业务后端
+### Python 后端
 
 - **FastAPI**：高性能异步 Web 框架
+- **LangGraph**：AI Agent 编排框架
 - **WebSocket**：实时双向推送
 
-## Python Agent 框架
+### 大模型服务
 
-- **LangGraph**：AI Agent 编排框架（开发中，暂不开源，欢迎关注微信 `up0to1` 了解进展）
+- **阿里云（DashScope / 通义千问）**：视觉理解、Embedding 向量编码
+- **千问 Virtual Try ON**（VTON）：虚拟换装生成
 
-## 数据库
+### 数据库
 
 - **MySQL**：关系型数据库，核心业务数据存储
 - **Qdrant**：向量数据库，支持语义检索
 - **阿里云 OSS**：对象存储，图片与静态资源托管
 
-## 测试工具
+### 测试工具
 
-- **JMeter**：压力测试与性能基准
+- **JMeter**：高并发压测与性能基准
 - **Postman**：接口调试与自动化测试
 
-# 需求分析
+## 需求分析
 
-## 用户端
+### 用户端
 
-- **商品浏览**：支持商品分类、搜索、详情查看
-- **购物车**：添加/删除商品、修改数量
-- **订单管理**：下单、支付、查看订单状态
+- **商品浏览**：商品分类、搜索、详情查看、浏览记录
+- **购物车**：添加 / 删除商品、修改数量
+- **订单交易**：下单、支付、订单状态查询、尺码推荐
 - **优惠券**：免费领取、付费购买、秒杀抢券，支持多种优惠类型
-- **用户中心**：个人信息管理、收货地址管理
+- **AI 随心搭**：风格驱动 / 用户选定 / 商品驱动一键智能搭配，多轮反馈、保存衣橱、一键加购下单
+- **智能衣橱**：单品、全身照、自拍、AI 效果图管理与点赞
+- **用户中心**：个人信息、收货地址、身体档案、credits 积分账户、偏好管理
 
-## 管理端
+### 管理端
 
-- **商品管理**：商品上下架、库存管理
-- **优惠券管理**：创建、发放、审核优惠券，秒杀活动配置
+- **商品管理**：商品上下架、库存管理、尺码对照表
+- **AI 模特**：商品 + 模特图换装生成展示图、多模式批量生成、评分发布、反馈
+- **优惠券管理**：创建、发放、审核，秒杀活动配置
 - **订单管理**：订单查询、发货处理
 - **用户管理**：用户信息查看与统计
+- **商家运营**：店铺资料、关注与评价、运营数据看板
 
-## 非功能需求
+### 非功能需求
 
-- **高并发**：秒杀场景下支持高并发访问，保证系统稳定性
-- **高可用**：服务无单点故障，支持熔断降级
-- **数据一致性**：分布式事务保证订单与库存一致性
-- **安全性**：网关统一鉴权，防止越权访问
+- **高并发**：秒杀场景支持高并发访问，Redis 预减库存 + MQ 异步下单削峰
+- **高可用**：服务无单点故障，支持限流熔断与降级
+- **数据一致性**：分布式事务 + 幂等对账保证订单、库存与积分一致
+- **安全性**：网关统一鉴权，STS 临时凭证直传 OSS，防越权
 
-# 微服务
+## 微服务
 
-## 单体架构
+项目采用单工程多模块（module）的组织方式，代码中原先的单体功能被拆为独立业务服务，每个服务访问独立库表、独立部署。业务微服务列表如下：
 
-单体架构（monolithic structure）：顾名思义，整个项目中所有功能模块都在一个工程中开发；
-项目部署时需要对所有模块一起编译、打包；项目的架构设计、开发模式都非常简单。
+### 业务微服务（Java）
 
-<div align=center>
-<img src="./image/单体架构.png" width="500" />
-</div>
-当项目规模较小时，这种模式上手快，部署、运维也都很方便，因此早期很多小型项目都采用这种模式。<br>
-但随着项目的业务规模越来越大，团队开发人员也不断增加，单体架构就呈现出越来越多的问题：<br>
+| 服务 | 主要职责 |
+|------|---------|
+| `user-service` | 用户注册登录、地址、credits 积分账户、身体档案、浏览记录、衣橱 |
+| `item-service` | 商品、分类、搜索、尺码对照表、AI 模特图生成与评分/发布 |
+| `cart-service` | 购物车管理 |
+| `trade-service` | 订单、优惠券、秒杀（商品秒杀 + 优惠券秒杀） |
+| `pay-service` | 支付订单、支付回调 |
+| `social-service` | 店铺、关注/评价、商家资料、Feed 流 |
+| `dashboard-service` | 商家运营数据看板 |
 
-- 团队协作成本高：试想一下，你们团队数十个人同时协作开发同一个项目，由于所有模块都在一个项目中，不同模块的代码之间物理边界越来越模糊。最终要把功能合并到一个分支，你绝对会陷入到解决冲突的泥潭之中。
-- 系统发布效率低：任何模块变更都需要发布整个系统，而系统发布过程中需要多个模块之间制约较多，需要对比各种文件，任何一处出现问题都会导致发布失败，往往一次发布需要数十分钟甚至数小时。
-- 系统可用性差：单体架构各个功能模块是作为一个服务部署，相互之间会互相影响，一些热点功能会耗尽系统资源，导致其它服务低可用。
+### 智能服务（Python）
 
-而要想解决这些问题，就需要使用微服务架构了。
+| 服务 | 主要职责 |
+|------|---------|
+| `ai-outfit` | AI 随心搭：风格驱动 / 用户选定 / 商品驱动，LangGraph 编排 + 链式 VTON，意图理解 → 向量检索 → 搭配决策 → Reflection 自检 → 换装生成 |
+| `ai-models` | AI 模特：链式 VTON + LLM 多 Agent 决策，支持单图 / 多换装 / 多姿势三种模式 |
+| `shared` | 两个服务共享的公共模块：Nacos 注册与发现、RedisCache、Qdrant 客户端、OSS 客户端、Java 调用客户端、MQ、WebSocket 管理器等 |
 
-## 微服务架构
+### 基础设施
 
-微服务架构，首先是服务化，就是将单体架构中的功能模块从单体应用中拆分出来，独立部署为多个服务。同时要满足下面的一些特点：
+网关与公共工程**不属于业务微服务**，作为平台基础设施统一提供：
 
-- 单一职责：一个微服务负责一部分业务功能，并且其核心数据不依赖于其它模块。
-- 团队自治：每个微服务都有自己独立的开发、测试、发布、运维人员，团队人员规模不超过10人（2张披萨能喂饱）
-- 服务自治：每个微服务都独立打包部署，访问自己独立的数据库。并且要做好服务隔离，避免对其它服务产生影响
+| 模块 | 职责 |
+|------|------|
+| `hm-gateway` | 统一入口，JWT 登录校验、请求路由（含 AI 路径与 WebSocket 透传） |
+| `hm-api` | OpenFeign 接口与公共 DTO，服务间远程调用契约 |
+| `hm-common` | 公共工具、统一响应 / 异常、Redis 工具等 |
 
-<div align=center>
-<img src="./image/微服务.png" width="500" /><br>
-</div>
+整体架构示意：
 
-# 项目总体架构
+![架构图](assets/架构图.png)
 
-<div align=center>
-<img src="./image/架构图.png" width="500" />
-</div>
 
-# 功能设计
 
-## Feed 内容推送
 
-基于用户行为与偏好，通过 WebSocket 实时推送个性化商品推荐与促销活动，提升用户活跃度与转化率。
+## 功能设计
 
-## 热点 Key 自动预热
+### Feed 内容推送
 
-针对秒杀、热门商品等高并发场景，系统自动识别热点 Key 并提前预热至 Redis 缓存，避免缓存击穿导致数据库压力过大。
+基于用户行为与偏好，通过 WebSocket 实时推送个性化商品推荐与话题活动，提升用户活跃度与转化率。
 
-## 秒杀功能
+### 缓存预热
 
-支持商品秒杀与优惠券秒杀两种模式，通过 Redis 预减库存 + 消息队列异步下单，保障高并发下的系统稳定与数据一致。
+针对秒杀、热门商品等高并发场景，系统采用**三层缓存预热机制**协同工作，避免缓存击穿导致数据库压力过大：
 
-## 一人一单 / 一人多单
+1. **秒杀自动预热（主动 · 定时任务）**：`trade-service` 定时任务每 1 分钟扫描秒杀商品 / 优惠券表，对秒杀开始前 5 分钟内且尚未过期的数据，写入秒杀库存、商品详情、订单记录、用户购买计数等 6 类 Redis key，TTL 覆盖整个秒杀周期，兜底同步只降不抬防止库存漂移。
+2. **人工按钮预热（手动 · 管理员触发）**：秒杀 / 优惠券管理页提供「手动缓存预热」按钮，调用与自动预热一致的 `doPreheatItem` / `doPreheatCoupon`，用于临时加活动或自动预热失效时的应急兜底。
+3. **热点 Key 探测（被动 · AOP + ZSet）**：`@HotKeyCache` 注解 + AOP 切面被动统计访问频次，Redis ZSet 在 30 秒窗口内访问 ≥ 50 次判定热点。缓存策略自适应：热点 30 分钟、非热点 5 分钟、空值 2 分钟；Redis 异常时降级为直接执行业务方法。用于普通商品详情页的突发热点，秒杀场景由机制 1/2 覆盖。
 
-- **一人一单**：通过 Redis 分布式锁 + 用户 ID 唯一索引，确保同一用户对同一秒杀商品仅能下一次单。
-- **一人多单**：支持单人多次领取/购买优惠券，通过 `perUserLimit` 控制领取上限。
+三机制协同：机制 1/2 负责已知热点（秒杀），写入长 TTL；机制 3 负责未知热点（普通商品突发流量），自适应 TTL。机制 1/2 命中时机制 3 只做计数不重复写缓存。
+
+### 秒杀功能
+
+支持商品秒杀与优惠券秒杀两种模式：Redis 预减库存 + 消息队列异步下单，削峰保护 MySQL，保障高并发下的系统稳定与数据一致。
+
+### 一人一单 / 一人多单
+
+- **一人一单**：Redis 分布式锁 + 用户 ID 唯一索引，确保同一用户对同一秒杀商品仅能下一次单。
+- **一人多单**：支持单人多次领取 / 购买优惠券，通过 `perUserLimit` 控制领取上限。
 - **全局唯一 ID**：基于雪花算法（Snowflake）生成分布式全局唯一 ID，兼顾高性能与趋势递增。
 
-# 重点技术总结
+### AI 随心搭
 
-## MybatisPlus
+面向 C 端用户的智能穿搭推荐，支持**系统模特**与**自拍照**（需登记身体档案）两种照片模式，共享同一 credits 配额池与 LangGraph 工作流。
 
-MybatisPlus:在日常开发中应该能发现，单表的CRUD功能代码重复度很高，也没有什么难度。
-而这部分代码量往往比较大，开发起来比较费时。
-因此，目前企业中都会使用一些组件来简化或省略单表的CRUD开发工作。
-目前在国内使用较多的一个组件就是MybatisPlus。
+**三种入口**：
 
-<div align=center>
-<img src="./image/MybatisPlus.png" width="500" />
-</div>
+| 入口 | 触发方式 | 扣费 | 生成路径 |
+|------|---------|------|---------|
+| 风格驱动 | 填写风格 / 颜色 / 品类 / 店铺 / 场景，从全平台/指定店铺中AI帮你找衣服 | 17 | 一阶段直出：检索决策 + Top3 换装一次完成 |
+| 用户选定 | 从衣橱 / 购物车 / 订单 / 搜索结果选单品 | 5 | 选定商品 + 模特图直接 VTON |
+| 商品驱动 | 商品详情页点击 AI 搭配 | 5 | 单商品直接生成换装图 |
 
-### 定义Mapper
+**工作流**（LangGraph 编排，异步执行，失败自动降级不阻塞主流程）：
 
-为了简化单表CRUD，MybatisPlus提供了一个基础的BaseMapper接口，其中已经实现了单表的CRUD:
+- **意图理解**：结构化字段透传 + LLM 解析自然语言备注 + 天气 / 季节感知 + 性别确定（系统模特 > 自拍分析 > 身体档案）
+- **向量检索**：Qdrant 按品类 / 店铺 / 颜色 / 性别 / 季节过滤，指定店铺缺货时跨店补全
+- **搭配决策**：Top10 候选 → LLM 选 Top3 并给出推荐理由，结合用户画像、历史搭配与跨会话去重
+- **Reflection 自检**：校验颜色协调 / 风格一致 / 季节匹配，不合格从候选池替换，最多修正 1 次
+- **链式 VTON**：多件商品依次换装生成效果图 → OSS 上传 → WebSocket 实时推送
 
-<div align=center>
-<img src="./image/BaseMapper.png" width="500" /><br>
-</div>
+**多轮反馈**：不满意可反馈调整，每轮扣 5 credits、同会话最多 3 轮。支持点哪换哪（替换单件单品）、换一套重新搭、整体不协调重来，可勾选不喜欢的颜色 / 商品，前端结构化字段优先、LLM 解析兜底。
 
-具体代码示例：
+**结果操作**：满意可加购整套（尺码确认弹窗批量推荐尺码）、立即下单、保存到衣橱；生成结果自动写入搭配历史，供回看与复购。
 
-```java
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.itheima.mp.domain.po.User;
+**个性化**：基于用户行为信号构建风格画像，注入检索向量融合提升相关性；不喜欢颜色 / 风格 / 价格区间等偏好跨会话持久化，并做跨会话去重避免重复推荐。
 
-public interface UserMapper extends BaseMapper<User> {
-}
-```
+### AI 模特
 
-```java
-    @Autowired
-    private UserMapper userMapper;
+商家选择商品（1-4 件，含品类冲突校验）后**异步任务**生成展示图：Java 校验入队 → RabbitMQ 下发 → Python 链式 VTON 生成 → 结果回流 Java 更新任务状态并确认 / 回滚 credits → WebSocket 推送商家前端。支持单图 / 多换装 / 多姿势三种模式，可选 LLM 多 Agent（衣品、摄影、灯光、化妆、导演）策划与评估，质量不达标时图像后处理精修。商家可评分、发布到商品主图、填写拒绝原因，高质量图自动沉淀到系统模特图池供全平台复用。
 
-    @Test
-    void testInsert() {
-        User user = new User();
-        user.setId(5L);
-        user.setUsername("Lucy");
-        user.setPassword("123");
-        user.setPhone("18688990011");
-        user.setBalance(200);
-        user.setInfo("{\"age\": 24, \"intro\": \"英文老师\", \"gender\": \"female\"}");
-        user.setCreateTime(LocalDateTime.now());
-        user.setUpdateTime(LocalDateTime.now());
-        userMapper.insert(user);
-    }
+### 积分配额体系
 
-    @Test
-    void testSelectById() {
-        User user = userMapper.selectById(5L);
-    }
+AI 功能统一使用 credits 计费（1 元 = 5 credits），首充赠送 50。预扣（`deduct`）后成功确认（`confirm`）或失败回滚（`rollback`），未消耗冻结记录存于 Redis；优先扣赠送（30 天有效）再扣充值（永久），FIFO 按过期时间。多轮反馈每轮独立扣费；评分发布、详细填写拒绝原因可获奖励 credits。
 
-    @Test
-    void testSelectByIds() {
-        List<User> users = userMapper.selectBatchIds(List.of(1L, 2L, 3L, 4L, 5L));
-    }
+### WebSocket 实时推送
 
-    @Test
-    void testUpdateById() {
-        User user = new User();
-        user.setId(5L);
-        user.setBalance(20000);
-        userMapper.updateById(user);
-    }
+用户端 `/ws/ai/{userId}`、商家端 `/ws/model/{userId}`，按 userId 建连保证多开页面均收到推送；连接建立后首条消息携带 JWT token 完成鉴权；客户端 30 秒心跳保活，前端未收到推送时用 taskId 轮询兜底。
 
-    @Test
-    void testDelete() {
-        userMapper.deleteById(5L);
-    }
-```
+## 重点技术总结
 
-### 条件构造器
+- **秒杀链路**：Redis 预减库存 + MQ 异步下单削峰，一人一单分布式锁，缓存预热三种机制协同，防超卖且数据最终一致。
+- **热点 Key 探测**：AOP 注解 + Redis ZSet 滑动窗口判定热点，自动自适应缓存 TTL，异常降级保障业务可用。
+- **AI 随心搭**：LangGraph 编排一阶段直出，结合 LLM + Qdrant 向量检索 + Reflection 自检 + 链式 VTON，失败自动降级；用户画像向量融合提升个性化。
+- **AI 模特**：LLM 多 Agent 策划 / 评估与链式 VTON 执行分离，质量决策层失败降级不阻塞，异步任务状态机（PENDING / PROCESSING / SUCCESS / FAILED / TIMEOUT）+ 超时回滚。
+- **积分配额**：预扣 / 确认 / 回滚闭环，Redis 冻结 + 分布式锁保证并发计费幂等，赠送与付费差异化有效期。
+- **消息驱动**：RabbitMQ 解耦 AI 任务下发 / 结果回流 / 商品库同步，支持死信队列与超时对账。
+- **双通道推送**：WebSocket 实时推送 + taskId 轮询兜底，断连自动切换，前端幂等去重。
+- **分布式事务**：Seata AT 模式保证订单与库存同提交 / 同回滚，最终一致。
 
-除了新增以外，修改、删除、查询的SQL语句都需要指定where条件。
-因此BaseMapper中提供的相关方法除了以id作为where条件以外，还支持更加复杂的where条件。
+## 系统展示
 
-#### QueryWrapper
+<img src="assets/image-20260806231515154.png" alt="image-20260806231515154" style="zoom: 80%;" />
 
-查询：查询出名字中带o的，存款大于等于1000元的人。代码如下：
+<img src="assets/image-20260806230843982.png" alt="image-20260806230843982" style="zoom:80%;" />
 
-```java
-@Test
-void testQueryWrapper() {
-    // 1.构建查询条件 where name like "%o%" AND balance >= 1000
-    QueryWrapper<User> wrapper = new QueryWrapper<User>()
-            .select("id", "username", "info", "balance")
-            .like("username", "o")
-            .ge("balance", 1000);
-    // 2.查询数据
-    List<User> users = userMapper.selectList(wrapper);
-    users.forEach(System.out::println);
-}
-```
+<img src="assets/ai随心搭结果页3.png" alt="ai随心搭结果页3" style="zoom:80%;" />
 
-更新：更新用户名为jack的用户的余额为2000，代码如下：
-
-```java
-@Test
-void testUpdateByQueryWrapper() {
-    // 1.构建查询条件 where name = "Jack"
-    QueryWrapper<User> wrapper = new QueryWrapper<User>().eq("username", "Jack");
-    // 2.更新数据，user中非null字段都会作为set语句
-    User user = new User();
-    user.setBalance(2000);
-    userMapper.update(user, wrapper);
-}
-```
-
-#### UpdateWrapper
-
-基于BaseMapper中的update方法更新时只能直接赋值，对于一些复杂的需求就难以实现。
-例如：更新id为1,2,4的用户的余额，扣200，对应的SQL应该是：
-
-```mysql
-UPDATE user SET balance = balance - 200 WHERE id in (1, 2, 4)
-```
-
-这个时候就要利用UpdateWrapper中的setSql功能了：
-
-```java
-@Test
-void testUpdateWrapper() {
-    List<Long> ids = List.of(1L, 2L, 4L);
-    // 1.生成SQL
-    UpdateWrapper<User> wrapper = new UpdateWrapper<User>()
-            .setSql("balance = balance - 200") // SET balance = balance - 200
-            .in("id", ids); // WHERE id in (1, 2, 4)
-        // 2.更新，注意第一个参数可以给null，也就是不填更新字段和数据，
-    // 而是基于UpdateWrapper中的setSQL来更新
-    userMapper.update(null, wrapper);
-}
-```
-
-### Service接口
-
-MybatisPlus不仅提供了BaseMapper，还提供了通用的Service接口及默认实现，封装了一些常用的service模板方法。
-
-```java
-public interface IUserService extends IService<User> {
-    // 拓展自定义方法
-}
-```
-
-```java
-@Service
-public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
-  
-}
-```
-
-```java
-    private final IUserService userService;
-
-    @PostMapping
-    @ApiOperation("新增用户")
-    public void saveUser(@RequestBody UserFormDTO userFormDTO){
-        // 1.转换DTO为PO
-        User user = BeanUtil.copyProperties(userFormDTO, User.class);
-        // 2.新增
-        userService.save(user);
-    }
-
-    @DeleteMapping("/{id}")
-    @ApiOperation("删除用户")
-    public void removeUserById(@PathVariable("id") Long userId){
-        userService.removeById(userId);
-    }
-
-    @GetMapping("/{id}")
-    @ApiOperation("根据id查询用户")
-    public UserVO queryUserById(@PathVariable("id") Long userId){
-        // 1.查询用户
-        User user = userService.getById(userId);
-        // 2.处理vo
-        return BeanUtil.copyProperties(user, UserVO.class);
-    }
-
-    @GetMapping
-    @ApiOperation("根据id集合查询用户")
-    public List<UserVO> queryUserByIds(@RequestParam("ids") List<Long> ids){
-        // 1.查询用户
-        List<User> users = userService.listByIds(ids);
-        // 2.处理vo
-        return BeanUtil.copyToList(users, UserVO.class);
-    }
-```
-
-## Docker
-
-微服务项目动辄就是几十台、上百台服务需要部署，有些大型项目甚至达到数万台服务。
-而由于每台服务器的运行环境不同，写好的安装流程、部署脚本并不一定在每个服务器都能正常运行，
-经常会出错。这就给系统的部署运维带来了很多困难。
-那么，有没有一种技术能够避免部署对服务器环境的依赖，减少复杂的部署流程呢？
-答案是肯定的，这就是Docker技术。有了Docker以后项目的部署如丝般顺滑，大大减少了运维工作量。
-即便对Linux不熟悉，也能轻松部署各种常见软件、Java项目。
-
-### Docker部署
-
-Docker本身包含一个后台服务，我们可以利用Docker命令告诉Docker服务，
-帮助我们快速部署指定的应用。Docker服务部署应用时，首先要去搜索并下载应用对应的镜像，
-然后根据镜像创建并允许容器，应用就部署完成了。
-
-<div align=center>
-<img src="./image/docker.png" width="500" /><br>
-</div>
-
-### Docker常见命令及关系
-
-<div align=center>
-<img src="./image/docker命令.png" width="500" /><br>
-</div>
-
-## SpringCloud
-
-微服务拆分以后碰到的各种问题都有对应的解决方案和微服务组件，
-而SpringCloud框架可以说是目前Java领域最全面的微服务组件的集合了。
-另外，Alibaba的微服务产品SpringCloudAlibaba目前也成为了SpringCloud组件中的一员。
-
-<div align=center>
-<img src="./image/springcloud.png" width="500" /><br>
-</div>
-
-## RestTemplate
-
-跨服务调用：Spring给我们提供了一个RestTemplate的API，可以方便的实现Http请求的发送。
-Java发送http请求可以使用Spring提供的RestTemplate，使用的基本步骤如下：
-
-- 注册RestTemplate到Spring容器
-- 调用RestTemplate的API发送请求，常见方法有：
-  - getForObject：发送Get请求并返回指定类型对象
-  - PostForObject：发送Post请求并返回指定类型对象
-  - put：发送PUT请求
-  - delete：发送Delete请求
-  - exchange：发送任意类型请求，返回ResponseEntity
-
-```java
-    ResponseEntity<List<ItemDTO>> response = restTemplate.exchange(
-            "http://localhost:8081/items?ids={ids}",
-            HttpMethod.GET,
-            null,
-            new ParameterizedTypeReference<List<ItemDTO>>() {
-            },
-            Map.of("ids", CollUtil.join(itemIds, ","))
-    );
-    // 2.2.解析响应
-    if(!response.getStatusCode().is2xxSuccessful()){
-        // 查询失败，直接结束
-        return;
-    }
-    List<ItemDTO> items = response.getBody();
-```
-
-## Nacos注册中心
-
-在大型微服务项目中，服务提供者的数量会非常多，为了管理这些服务就引入了注册中心的概念。注册中心、服务提供者、服务消费者三者间关系如下：
-
-<div align=center>
-<img src="./image/nacos.png" width="500" /><br>
-</div>
-
-流程如下：
-
-- 服务启动时就会注册自己的服务信息（服务名、IP、端口）到注册中心
-- 调用者可以从注册中心订阅想要的服务，获取服务对应的实例列表（1个服务可能多实例部署）
-- 调用者自己对实例列表负载均衡，挑选一个实例
-- 调用者向该实例发起远程调用
-
-服务调用者必须利用负载均衡的算法，从多个实例中挑选一个去访问。常见的负载均衡算法有：
-
-- 随机
-- 轮询
-- IP的hash
-- 最近最少访问
-
-另外，服务发现需要用到一个工具，DiscoveryClient，SpringCloud已经帮我们自动装配，我们可以直接注入使用。
-
-```java
-List<ServiceInstance> instances = discoveryClient.getInstances("item-service");
-if (CollUtil.isEmpty(instances)){
-    return;
-}
-ServiceInstance instance = instances.get(RandomUtil.randomInt(instances.size()));
-
-//通过发起网络请求获取itemservice当中的获取商品信息功能
-ResponseEntity<List<ItemDTO>> response = restTemplate.exchange(
-        instance.getUri()+"/items?ids={ids}",
-        HttpMethod.GET,
-        null,
-        new ParameterizedTypeReference<List<ItemDTO>>() {
-        },
-        Map.of("ids", CollUtil.join(itemIds, ","))
-);
-```
-
-## OpenFeign
-
-利用Nacos实现了服务的治理，利用RestTemplate实现了服务的远程调用。但是远程调用的代码太复杂了。
-因此，必须想办法改变远程调用的开发模式，让远程调用像本地方法调用一样简单。而这就要用到OpenFeign组件了。
-其实远程调用的关键点就在于四个：
-
-- 请求方式
-- 请求路径
-- 请求参数
-- 返回值类型
-
-所以，OpenFeign就利用SpringMVC的相关注解来声明上述4个参数，然后基于动态代理生成远程调用的代码，而无需手动再编写，非常方便。
-
-```java
-@FeignClient("item-service")
-public interface ItemClient {
-
-    @GetMapping("/items")
-    List<ItemDTO> queryItemByIds(@RequestParam("ids") Collection<Long> ids);
-}
-```
-
-```java
-//openfeign技术化简restTemplate和nacos技术
-List<ItemDTO> items = itemClient.queryItemByIds(itemIds);
-```
-
-## 网关
-
-由于每个微服务都有不同的地址或端口，入口不同，在与前端联调的时候发现了一些问题：
-
-- 请求不同数据时要访问不同的入口，需要维护多个入口地址，麻烦
-- 前端无法调用nacos，无法实时更新服务列表
-
-单体架构时只需要完成一次用户登录、身份校验，就可以在所有业务中获取到用户信息。而微服务拆分后，每个微服务都独立部署，这就存在一些问题：
-
-- 每个微服务都需要编写登录校验、用户信息获取的功能吗？
-- 当微服务之间调用时，该如何传递用户信息？
-
-不要着急，这些问题都可以通过网关技术解决。
-什么是网关？
-顾明思议，网关就是网络的关口。数据在网络间传输，
-从一个网络传输到另一网络时就需要经过网关来做数据的路由和转发以及数据安全的校验。
-现在，微服务网关就起到同样的作用。前端请求不能直接访问微服务，而是要请求网关：
-
-- 网关可以做安全控制，也就是登录身份校验，校验通过才放行
-- 通过认证后，网关再根据请求判断应该访问哪个微服务，将请求转发过去
-
-<div align=center>
-<img src="./image/网关.png" width="500" /><br>
-</div>
-
-在SpringCloud当中，提供了两种网关实现方案：
-
-- Netflix Zuul：早期实现，目前已经淘汰。
-- SpringCloudGateway：基于Spring的WebFlux技术，完全支持响应式编程，吞吐能力更强。
-
-### 配置路由
-
-结合nacos即可进入8080端口访问item相关服务。
-
-```yaml
-server:
-  port: 8080
-spring:
-  cloud:
-    nacos:
-      server-addr: 192.168.***.***:8848
-    gateway:
-      routes:
-        - id: item  # 路由规则id，自定义，唯一
-          uri: lb://item-service # 路由的目标服务，lb代表负载均衡，会从注册中心拉取服务列表
-          predicates: # 路由断言，判断当前请求是否符合当前规则，符合则路由到目标服务
-            - Path=/items/**,/search/** # 这里是以请求路径作为判断规则
-```
-
-### 网关登录校验
-
-<div align=center>
-<img src="./image/网关登录校验.png" width="500" /><br>
-</div>
-
-#### 网关过滤器
-
-如图中所示，最终请求转发是有一个名为NettyRoutingFilter的过滤器来执行的，
-而且这个过滤器是整个过滤器链中顺序最靠后的一个。如果能够定义一个过滤器，
-在其中实现登录校验逻辑，并且将过滤器执行顺序定义到NettyRoutingFilter之前，这就符合需求了！
-
-<div align=center>
-<img src="./image/网关过滤器.png" width="500" /><br>
-</div>
-
-```java
-public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-    // 1.获取Request
-    ServerHttpRequest request = exchange.getRequest();
-    // 2.判断是否不需要拦截
-    if(isExclude(request.getPath().toString())){
-        // 无需拦截，直接放行
-        return chain.filter(exchange);
-    }
-    // 3.获取请求头中的token
-    String token = null;
-    List<String> headers = request.getHeaders().get("authorization");
-    if (!CollUtils.isEmpty(headers)) {
-        token = headers.get(0);
-    }
-    // 4.校验并解析token
-    Long userId = null;
-    try {
-        userId = jwtTool.parseToken(token);
-    } catch (UnauthorizedException e) {
-        // 如果无效，拦截
-        ServerHttpResponse response = exchange.getResponse();
-        response.setRawStatusCode(401);
-        return response.setComplete();
-    }
-
-    // 如果有效，传递用户信息
-    String userInfo = userId.toString();
-    ServerWebExchange swe = exchange.mutate()
-          .request(builder -> builder.header("user-info", userInfo))
-          .build();
-    // 6.放行
-    return chain.filter(swe);
-}
-```
-
-每个微服务都配置都配置拦截器，登录校验用户ID。、
-
-```java
-public class UserInfoInterceptor implements HandlerInterceptor {
-    @Override
-    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        // 1.获取请求头中的用户信息
-        String userInfo = request.getHeader("user-info");
-        // 2.判断是否为空
-        if (StrUtil.isNotBlank(userInfo)) {
-            // 不为空，保存到ThreadLocal
-                UserContext.setUser(Long.valueOf(userInfo));
-        }
-        // 3.放行
-        return true;
-    }
-
-    @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        // 移除用户
-        UserContext.removeUser();
-    }
-}
-```
-
-在微服务内部，利用OpenFeign调用其他微服务时，同样需要传递用户进行校验。
-
-```java
-@Bean
-public RequestInterceptor userInfoRequestInterceptor(){
-    return new RequestInterceptor() {
-        @Override
-        public void apply(RequestTemplate template) {
-            // 获取登录用户
-            Long userId = UserContext.getUser();
-            if(userId == null) {
-                // 如果为空则直接跳过
-                return;
-            }
-            // 如果不为空则放入请求头中，传递给下游微服务
-            template.header("user-info", userId.toString());
-        }
-    };
-}
-```
-
-## Sentinel
-
-### 请求限流
-
-在簇点链路后面点击流控按钮，即可对其做限流配置：
-
-<div align=center>
-<img src="./image/请求限流.png" width="500" /><br>
-</div>
-
-在弹出的菜单中这样填写：
-
-<div align=center>
-<img src="./image/流控规则.png" width="500" /><br>
-</div>
-这样就把查询购物车列表这个簇点资源的流量限制在了每秒6个，也就是最大QPS为6。<br>
-
-### 线程隔离
-
-查询购物车的时候需要查询商品，为了避免因商品服务出现故障导致购物车服务级联失败，
-我们可以把购物车业务中查询商品的部分隔离起来，限制可用的线程资源：
-
-<div align=center>
-<img src="./image/线程隔离.png" width="500" /><br>
-</div>
-
-#### OpenFeign整合Sentinel
-
-```yaml
-feign:
-  sentinel:
-    enabled: true # 开启feign对sentinel的支持
-```
-
-点击查询商品的FeignClient对应的簇点资源后面的流控按钮：
-
-<div align=center>
-<img src="./image/线程隔离1.png" width="500" /><br>
-</div>
-
-<div align=center>
-<img src="./image/线程隔离2.png" width="500" /><br>
-</div>
-
-注意，这里勾选的是并发线程数限制，也就是说这个查询功能最多使用5个线程，而不是5QPS。
-如果查询商品的接口每秒处理2个请求，则5个线程的实际QPS在10左右，而超出的请求自然会被拒绝。
-
-<div align=center>
-<img src="./image/线程隔离3.png" width="500" /><br>
-</div>
-
-## Seata-分布式事务、
-
-在Seata的事务管理中有三个重要的角色：
-
-- TC (Transaction Coordinator) - 事务协调者：维护全局和分支事务的状态，协调全局事务提交或回滚。
-- TM (Transaction Manager) - 事务管理器：定义全局事务的范围、开始全局事务、提交或回滚全局事务。
-- RM (Resource Manager) - 资源管理器：管理分支事务，与TC交谈以注册分支事务和报告分支事务的状态，并驱动分支事务提交或回滚。
-
-<div align=center>
-<img src="./image/seata1.png" width="500" /><br>
-</div>
-
-Seata支持四种不同的分布式事务解决方案：
-
-- XA
-- TCC
-- AT
-- SAGA
-
-#### Seata的XA模型
-
-Seata对原始的XA模式做了简单的封装和改造，以适应自己的事务模型，基本架构如图：
-
-<div align=center>
-<img src="./image/seata2.png" width="500" /><br>
-</div>
-
-RM一阶段的工作：
-
-1. 注册分支事务到TC
-2. 执行分支业务sql但不提交
-3. 报告执行状态到TC
-
-TC二阶段的工作：
-
-1. TC检测各分支事务执行状态
-2. 如果都成功，通知所有RM提交事务
-3. 如果有失败，通知所有RM回滚事务
-
-RM二阶段的工作：
-
-- 接收TC指令，提交或回滚事务
-
-#### Seata的AT模型
-
-AT模式同样是分阶段提交的事务模型，不过缺弥补了XA模型中资源锁定周期过长的缺陷。
-
-<div align=center>
-<img src="./image/seata3.png" width="500" /><br>
-</div>
-
-阶段一RM的工作：
-
-- 注册分支事务
-- 记录undo-log（数据快照）
-- 执行业务sql并提交
-- 报告事务状态
-  阶段二提交时RM的工作：
-- 删除undo-log即可
-  阶段二回滚时RM的工作：
-- 根据undo-log恢复数据到更新前
-
-#### AT与XA的区别
-
-简述AT模式与XA模式最大的区别是什么？
-
-- XA模式一阶段不提交事务，锁定资源；AT模式一阶段直接提交，不锁定资源。
-- XA模式依赖数据库机制实现回滚；AT模式利用数据快照实现数据回滚。
-- XA模式强一致；AT模式最终一致
-
-可见，AT模式使用起来更加简单，无业务侵入，性能更好。因此企业90%的分布式事务都可以用AT模式来解决。
-
-## RabbitMQ--异步调用
-
-RabbitMQ对应的架构如图：
-
-<div align=center>
-<img src="./image/rabbitmq.png" width="500" /><br>
-</div>
-
-其中包含几个概念：
-
-- publisher：生产者，也就是发送消息的一方
-- consumer：消费者，也就是消费消息的一方
-- queue：队列，存储消息。生产者投递的消息会暂存在消息队列中，等待消费者处理
-- exchange：交换机，负责消息路由。生产者发送的消息由交换机决定投递到哪个队列。
-- virtual host：虚拟主机，起到数据隔离的作用。每个虚拟主机相互独立，有各自的exchange、queue
-
-### SpringAMQP
-
-由于RabbitMQ采用了AMQP协议，因此它具备跨语言的特性。
-任何语言只要遵循AMQP协议收发消息，都可以与RabbitMQ交互。
-并且RabbitMQ官方也提供了各种不同语言的客户端。
-但是，RabbitMQ官方提供的Java客户端编码相对复杂，
-一般生产环境下我们更多会结合Spring来使用。
-而Spring的官方刚好基于RabbitMQ提供了这样一套消息收发的模板工具：
-SpringAMQP。并且还基于SpringBoot对其实现了自动装配，使用起来非常方便。
-消息发送：
-
-```java
-@SpringBootTest
-public class SpringAmqpTest {
-
-    @Autowired
-    private RabbitTemplate rabbitTemplate;
-
-    @Test
-    public void testSimpleQueue() {
-        // 队列名称
-        String queueName = "simple.queue";
-        // 消息
-        String message = "hello, spring amqp!";
-        // 发送消息
-        rabbitTemplate.convertAndSend(queueName, message);
-    }
-}
-```
-
-消息接受：
-
-```java
-@Component
-public class SpringRabbitListener {
-  // 利用RabbitListener来声明要监听的队列信息
-  // 将来一旦监听的队列中有了消息，就会推送给当前服务，调用当前方法，处理消息。
-  // 可以看到方法体中接收的就是消息体的内容
-  @RabbitListener(queues = "simple.queue")
-  public void listenSimpleQueueMessage(String msg) throws InterruptedException {
-    System.out.println("spring 消费者接收到消息：【" + msg + "】");
-  }
-}
-```
-
-## Elasticsearch
-
-elasticsearch是一款非常强大的开源搜索引擎，支持的功能非常多。
-
-### 倒排索引
-
-倒排索引中有两个非常重要的概念：
-
-- 文档（Document）：用来搜索的数据，其中的每一条数据就是一个文档。例如一个网页、一个商品信息
-- 词条（Term）：对文档数据或用户搜索数据，利用某种算法分词，得到的具备含义的词语就是词条。例如：我是中国人，就可以分为：我、是、中国人、中国、国人这样的几个词条
-
-创建倒排索引是对正向索引的一种特殊处理和应用，流程如下：
-
-- 将每一个文档的数据利用分词算法根据语义拆分，得到一个个词条
-- 创建表，每行数据包括词条、词条所在文档id、位置等信息
-- 因为词条唯一性，可以给词条创建正向索引
-
-倒排索引的搜索流程如下（以搜索"华为手机"为例），如图：
-
-<div align=center>
-<img src="./image/倒排索引.png" width="500" /><br>
-</div>
-
-流程描述：
-1）用户输入条件"华为手机"进行搜索。
-2）对用户输入条件分词，得到词条：华为、手机。
-3）拿着词条在倒排索引中查找（由于词条有索引，查询效率很高），即可得到包含词条的文档id：1、2、3。
-4）拿着文档id到正向索引中查找具体文档即可（由于id也有索引，查询效率也很高）。
-
-# 测试流程
+## 测试流程
 
 本项目使用 **JMeter** 对秒杀功能进行高并发压力测试，验证防超卖、限购、Redis 与 DB 数据一致性等核心场景。测试前需通过 Spring Boot Test 批量注册用户并生成 Token CSV，然后使用 JMeter 测试计划模拟多用户并发下单。
 
-## 测试工具
+### 测试工具
 
 - **JMeter 5.6.3**：压力测试与性能基准，支持高并发线程组、同步定时器、BeanShell/Groovy 脚本
 - **Spring Boot Test**：批量注册测试用户并签发 JWT Token
 - **Redis CLI**：验证 Redis 库存、用户购买记录等缓存数据
 - **MySQL CLI**：验证 `sold_stock`、订单记录等数据库数据
 
-## 测试前准备
+### 测试前准备
 
-### 批量注册用户与 Token 生成
+#### 批量注册用户与 Token 生成
 
 测试前需运行 [BatchRegisterTest.java](./zmall/user-service/src/test/java/com/hmall/user/BatchRegisterTest.java) 批量注册1000个测试用户，并生成 Token CSV 文件供 JMeter 使用。
 
@@ -843,15 +250,15 @@ class BatchRegisterTest {
 - `users_tokens_r2.csv`：第41-80用户（第二轮测试）
 - `users_tokens_r3.csv`：第81-120用户（第三轮测试）
 
-Token 过期后运行 `refreshTokens` 方法即可刷新，4个 CSV 文件会自动同步更新。
+Token 过期后运行 `refreshTokens` 方法即可刷新，4 个 CSV 文件会自动同步更新。
 
-## JMeter 测试计划核心讲解
+### JMeter 测试计划核心讲解
 
 测试计划文件：[ZMall测试.jmx](./ZMall测试.jmx)
 
-### 整体结构
+#### 整体结构
 
-```xml
+```
 <TestPlan serialize_threadgroups="true">  <!-- 串行执行线程组 -->
   <CSVDataSet filename="users_tokens.csv" shareMode="all" recycle="true"/>
   <Arguments>  <!-- 全局变量：HOST、PORT、ITEM_ID、COUPON_ID、TEST_BASE -->
@@ -865,17 +272,17 @@ Token 过期后运行 `refreshTokens` 方法即可刷新，4个 CSV 文件会自
 </TestPlan>
 ```
 
-### 每个测试组的核心组件
+#### 每个测试组的核心组件
 
 每个测试组包含以下组件，保证测试数据完整记录：
 
-1. **JSR223 PreProcessor**：设置测试目录路径（`RUN_DIR`）、测试名称（`TEST_NAME`），重置性能统计（`PERF_*`）
+1. **JSR223 PreProcessor**：设置测试缓冲区路径（`RUN_DIR`）、测试名称（`TEST_NAME`），重置性能统计（`PERF_*`）
 2. **HeaderManager**：设置 `authorization`（Token）和 `Content-Type` 请求头
 3. **HTTPSamplerProxy**：秒杀下单请求，POST `/seckill/{itemId}`
 4. **JSR223 PostProcessor**：解析响应中的 `code` 字段，写入 CSV（含用户名、code、响应、耗时、字节数），累加性能统计
 5. **SimpleDataWriter**：原始结果写入 JTL 文件
 
-### tearDown 自动生成摘要
+#### tearDown 自动生成摘要
 
 测试结束后 `teardownThreadGroup` 读取 CSV 和 `PERF_*` 全局属性，生成 `summary.txt` 包含：
 
@@ -883,7 +290,7 @@ Token 过期后运行 `refreshTokens` 方法即可刷新，4个 CSV 文件会自
 - 业务结果分布：code=0（秒杀成功）、code=1（库存不足）、code=2（重复下单）数量
 - 验证项：根据测试类型自动输出验证项
 
-### 测试结果目录结构
+#### 测试结果目录结构
 
 ```
 test-results/
@@ -898,9 +305,9 @@ test-results/
 └── 20260710_couponOversell/
 ```
 
-## 五大秒杀功能测试流程
+### 五大秒杀功能测试流程
 
-### 1. 秒杀商品超卖测试
+#### 1. 秒杀商品超卖测试
 
 **验证目标**：高并发下不会超卖，库存扣减精确。
 
@@ -912,14 +319,14 @@ test-results/
 
 **操作流程**：
 
-1. 后台设置秒杀商品：库存=10，限购=1，开抢时间设为5分钟后
+1. 后台设置秒杀商品：库存=10，限购=1，开抢 5 分钟后
 2. 后台「清除预热」→「重新预热」
-3. 禁用其他测试组，仅启用「秒杀商品超卖测试组」
+3. 禁用其余测试组，仅启用「秒杀商品超卖测试组」
 4. 关闭 JMeter GUI 重新打开（清除 props 残留）
 5. 运行测试计划
 6. 预期结果：code=0=10，code=1=990，code=2=0
 
-### 2. 秒杀优惠券超卖测试
+#### 2. 秒杀优惠券超卖测试
 
 **验证目标**：高并发下优惠券不会超发，库存扣减精确。
 
@@ -931,14 +338,14 @@ test-results/
 
 **操作流程**：
 
-1. 后台设置秒杀优惠券：库存=10，限购=1，开抢时间设为5分钟后
+1. 后台设置秒杀优惠券：库存=10，限购=1，开抢 5 分钟后
 2. 后台「清除预热」→「重新预热」
 3. 禁用其他测试组，仅启用「秒杀优惠券超卖测试组」
 4. 关闭 JMeter GUI 重新打开
 5. 运行测试计划
 6. 预期结果：code=0=10，code=1=990，code=2=0
 
-### 3. 秒杀商品一人一单测试
+#### 3. 秒杀商品一人一单测试
 
 **验证目标**：同一用户重复下单被限购拦截。
 
@@ -950,16 +357,16 @@ test-results/
 
 **操作流程**：
 
-1. 后台设置秒杀商品：库存=10，限购=1，开抢时间设为5分钟后
+1. 后台设置秒杀商品：库存=10，限购=1，开抢 5 分钟后
 2. 后台「清除预热」→「重新预热」
 3. 禁用其他测试组，仅启用「秒杀商品一人一单组」
 4. 关闭 JMeter GUI 重新打开
 5. 运行测试计划
 6. 预期结果：code=0=1，code=2=9
 
-### 4. 秒杀商品一人多单测试
+#### 4. 秒杀商品一人多单测试
 
-**验证目标**：同一用户可下多单，超过限购数后被拦截。
+**前置目标**：同一用户可下多单，超过限购数后被拦截。
 
 **测试组配置**：
 
@@ -969,7 +376,7 @@ test-results/
 
 **操作流程**：
 
-1. 后台设置秒杀商品：库存=100，限购=2，开抢时间设为5分钟后
+1. 后台设置秒杀商品：库存=100，限购=2，开抢 5 分钟后
 2. 后台「清除预热」→「重新预热」
 3. 修改 CSV DataSet 的 Filename 为 `users_tokens_r1.csv`
 4. 禁用其他测试组，仅启用「秒杀商品一人多单组」
@@ -977,7 +384,7 @@ test-results/
 6. 运行测试计划
 7. 预期结果：code=0=20（10用户×2单），code=2=180（10用户×18次超限）
 
-### 5. 秒杀优惠券一人一单测试
+#### 5. 秒杀优惠券一人一单测试
 
 **验证目标**：同一用户重复领取秒杀优惠券被限购拦截。
 
@@ -989,16 +396,16 @@ test-results/
 
 **操作流程**：
 
-1. 后台设置秒杀优惠券：库存=10，限购=1，开抢时间设为5分钟后
+1. 后台设置秒杀优惠券：库存=10，限购=1，开抢 5 分钟后
 2. 后台「清除预热」→「重新预热」
 3. 禁用其他测试组，仅启用「秒杀优惠券一人一单组」
 4. 关闭 JMeter GUI 重新打开
 5. 运行测试计划
 6. 预期结果：code=0=1，code=2=9
 
-## 测试注意事项
+### 测试注意事项
 
 1. **每轮测试前必须「清除预热」→「重新预热」**：清除 Redis 中的用户购买记录（`SECKILL_USER_COUNT_KEY`），否则全部返回 code=2
 2. **测试结果目录按"日期+功能名"结构组织**：不同功能测试不可共用同一目录
-3. **超卖测试组并发数建议超过1000会导致**：避免网关连接拒绝
+3. **超卖测试组并发数设为 1000**：避免网关连接拒绝
 4. **每轮测试前需重置 Redis 和 MySQL 数据**：清除订单记录、恢复库存

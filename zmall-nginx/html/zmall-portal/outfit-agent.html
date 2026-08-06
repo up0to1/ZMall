@@ -1,0 +1,1797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>AI 随心搭 · 风格探索 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/ai-outfit.css"/>
+  <style>
+    /* 店铺搜索多选下拉 */
+    .shop-dropdown {
+      border: 1px solid #dcdfe6;
+      border-radius: 6px;
+      max-height: 220px;
+      overflow-y: auto;
+      background: #fff;
+      margin-top: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .shop-option {
+      padding: 8px 12px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .shop-option:hover {
+      background: #f5f7fa;
+    }
+    .shop-option .shop-check {
+      color: #67c23a;
+      font-weight: bold;
+    }
+    .shop-option.disabled {
+      color: #c0c4cc;
+      cursor: not-allowed;
+      background: #fafafa;
+    }
+    .shop-chips {
+      margin-top: 8px;
+    }
+    .shop-chips .chip {
+      background: #f57c00;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    .shop-chips .chip:hover {
+      background: #ef6c00;
+    }
+    .outfit-mode-card .option-desc {
+      font-size: 12px;
+    }
+    .picked-summary-bar {
+      background: #fff8e1;
+      border: 1px dashed #ffb300;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-top: 12px;
+      font-size: 13px;
+      color: #6d4c41;
+    }
+    /* 已选品类清单 */
+    .picked-categories-list {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: #f5f7fa;
+      border-radius: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    /* picker 搜索区 */
+    .picker-search-area {
+      margin-bottom: 12px;
+      padding: 12px;
+      background: #f5f7fa;
+      border-radius: 6px;
+    }
+    .picker-search-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    /* 跨源品类冲突提示 */
+    .picker-conflict-hint {
+      margin-bottom: 12px;
+      padding: 8px 10px;
+      background: #fff3e0;
+      border: 1px solid #ffe0b2;
+      border-radius: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    /* 同品类冲突的商品行高亮（警告色边框） */
+    .picker-item.cat-conflict {
+      border-color: #ff9800;
+      background: #fff8e1;
+    }
+    /* 搜索结果加载更多 */
+    .picker-load-more {
+      text-align: center;
+      padding: 10px;
+      color: #1976d2;
+      cursor: pointer;
+      font-size: 13px;
+      border-top: 1px dashed #ebeef5;
+      margin-top: 8px;
+    }
+    .picker-load-more:hover {
+      background: #f5f7fa;
+    }
+    /* 主页面已选单品明细 */
+    .picked-items-list {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .picked-item-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      background: #fff;
+      border: 1px solid #ebeef5;
+      border-radius: 6px;
+      max-width: 280px;
+    }
+    .picked-item-card img {
+      width: 36px;
+      height: 44px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #f5f7fa;
+    }
+    .picked-item-info {
+      min-width: 0;
+      flex: 1;
+    }
+    .picked-item-name {
+      font-size: 12px;
+      color: #333;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 150px;
+    }
+    .picked-item-meta {
+      font-size: 11px;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .picked-item-remove {
+      border: none;
+      background: transparent;
+      color: #f56c6c;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 2px 4px;
+      line-height: 1;
+    }
+    .picked-item-remove:hover {
+      color: #d32f2f;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="ai-container">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h1 class="ai-page-title" style="margin:0;">AI 随心搭 · 风格探索</h1>
+      <div>
+        <a href="/outfit-history.html" class="btn-link">历史记录</a>
+        <a href="/wardrobe.html" class="btn-link" style="margin-left:12px;">我的衣橱</a>
+      </div>
+    </div>
+
+    <!-- 顶部 CreditsBar -->
+    <credits-bar :balance="creditsBalance"
+                 :expiring-soon="expiringSoon"
+                 :nearest-expiry="nearestExpiry"
+                 @recharge="showRechargeDialog = true">
+    </credits-bar>
+
+    <!-- 性别与服装匹配提醒横幅（2026-07-27 新增）-->
+    <div class="ai-section" style="background:#fff8e1;border:1px solid #ffe082;padding:12px 16px;border-radius:6px;">
+      <div style="display:flex;align-items:flex-start;gap:8px;">
+        <span style="font-size:18px;">⚠️</span>
+        <div style="flex:1;font-size:13px;color:#6d4c41;line-height:1.6;">
+          <!-- 身体信息联动 photoMode（2026-07-31 新增）：
+               系统模特模式 = 体验版，不强制身体信息，下单/加购时再补充；
+               真人照片模式 = 正式版，必须登记身体信息档案（含性别）后才能使用。 -->
+          <template v-if="photoMode === 'custom'">
+            <strong>请确保信息填写正确：</strong>AI 随心搭会根据您的<strong>性别</strong>筛选服装，
+            男用户只推荐男款+中性款，女用户只推荐女款+中性款，避免出现跨性别搭配。
+            请先在<strong>「我的衣橱」</strong>登记身体信息档案（含性别），未登记将无法使用 AI 搭配。
+          </template>
+          <template v-else>
+            <strong>系统模特体验版：</strong>当前使用系统模特生成搭配效果，
+            无需登记身体信息即可体验 AI 随心搭功能。
+            如对搭配满意并想<strong>下单或加购</strong>，系统会引导您补充身体信息以推荐合适尺码。
+          </template>
+        </div>
+      </div>
+      <!-- 身体信息档案状态卡：仅真人照片模式显示（系统模特体验版不强制） -->
+      <div v-if="photoMode === 'custom' && bodyProfileLoaded" style="margin-top:10px;padding:10px 12px;background:#fff;border-radius:4px;border:1px dashed #ffb300;">
+        <div v-if="bodyProfile" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:13px;color:#333;">
+            <span style="color:#67c23a;">✓</span>
+            <strong>当前档案：</strong>{{ bodyProfile.profileName || '默认档案' }}
+            <span class="gender-badge" :class="bodyProfile.gender"
+                  style="margin-left:8px;padding:2px 8px;border-radius:10px;font-size:12px;color:#fff;"
+                  :style="{background: bodyProfile.gender === 'male' ? '#1976d2' : '#e91e63'}">
+              {{ genderLabel(bodyProfile.gender) }}
+            </span>
+            <span style="margin-left:8px;color:#666;">
+              {{ bodyProfile.height || '-' }}cm / {{ bodyProfile.weight || '-' }}kg
+              · {{ bodyTypeLabel(bodyProfile.bodyType) }}
+              · {{ ageRangeLabel(bodyProfile.ageRange) }}
+            </span>
+          </div>
+          <div>
+            <button class="btn-link" @click="showBodyProfileSwitcher = true" style="font-size:13px;">切换档案</button>
+            <a href="/wardrobe.html" class="btn-link" style="margin-left:8px;font-size:13px;">管理档案 →</a>
+          </div>
+        </div>
+        <div v-else style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:13px;color:#d32f2f;">
+            <span>✗</span> 您还未登记身体信息档案，无法使用 AI 搭配功能
+          </div>
+          <a href="/wardrobe.html" class="btn-primary" style="padding:6px 16px;font-size:13px;">去登记 →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 照片会话状态卡 -->
+    <div class="ai-section">
+      <h3>试衣照片</h3>
+      <div class="photo-options">
+        <div class="photo-option" :class="{active: photoMode === 'default'}" @click="switchPhotoMode('default')">
+          <div class="option-icon">👗</div>
+          <div class="option-label">使用系统模特</div>
+          <div class="option-desc">可选男/女模特，AI 按模特性别筛选服装</div>
+        </div>
+        <div class="photo-option" :class="{active: photoMode === 'custom'}" @click="switchPhotoMode('custom')">
+          <div class="option-icon">📷</div>
+          <div class="option-label">上传我的真人照片</div>
+          <div class="option-desc">场景 B（VTON 真人换装）· AI 自动识别性别</div>
+        </div>
+      </div>
+      <!-- 系统模特选择（photoMode === 'default' 时展示）-->
+      <div v-if="photoMode === 'default'" style="margin-top:16px;">
+        <div v-if="selectedSystemModel" style="display:flex;align-items:center;gap:12px;padding:12px;background:#f5f7fa;border-radius:6px;border:1px solid #dcdfe6;">
+          <img :src="selectedSystemModel.imageUrl" alt="选定模特"
+               style="width:64px;height:80px;object-fit:cover;border-radius:4px;"/>
+          <div style="flex:1;font-size:13px;color:#333;">
+            <div>
+              <strong>已选定模特</strong>
+              <span class="gender-badge" :class="selectedSystemModel.gender"
+                    style="margin-left:8px;padding:2px 8px;border-radius:10px;font-size:12px;color:#fff;"
+                    :style="{background: selectedSystemModel.gender === 'male' ? '#1976d2' : '#e91e63'}">
+                {{ genderLabel(selectedSystemModel.gender) }}
+              </span>
+            </div>
+            <div style="color:#666;margin-top:4px;">
+              身高 {{ selectedSystemModel.height || '-' }}cm
+              · {{ bodyTypeLabel(selectedSystemModel.bodyType) }}
+              · {{ ageRangeLabel(selectedSystemModel.ageRange) }}
+            </div>
+            <div v-if="selectedSystemModel.note" style="color:#999;margin-top:2px;font-size:12px;">
+              {{ selectedSystemModel.note }}
+            </div>
+          </div>
+          <div>
+            <button class="btn-link" @click="openSystemModelPicker" style="font-size:13px;">更换</button>
+            <button class="btn-link" @click="clearSelectedSystemModel" style="margin-left:8px;font-size:13px;color:#999;">清除</button>
+          </div>
+        </div>
+        <div v-else style="padding:14px;background:#fafafa;border:1px dashed #dcdfe6;border-radius:6px;text-align:center;">
+          <div style="font-size:13px;color:#666;margin-bottom:8px;">
+            未选定具体模特，AI 将随机分配系统默认模特
+          </div>
+          <button class="btn-secondary" @click="openSystemModelPicker" style="font-size:13px;">
+            📋 选择男/女模特
+          </button>
+        </div>
+        <div class="form-hint" style="margin-top:8px;color:#909399;">
+          提示：选定男模特 → AI 只配男款+中性款；选定女模特 → AI 只配女款+中性款
+        </div>
+      </div>
+      <div v-if="photoMode === 'custom'" style="margin-top:16px;">
+        <div class="photo-uploader" :class="{'has-photo': userPhotoUrl}" @click="triggerFileInput">
+          <img v-if="userPhotoUrl" :src="userPhotoUrl" alt="我的照片"/>
+          <div v-else>
+            <div class="upload-icon">📤</div>
+            <div class="upload-text">点击上传真人全身照</div>
+            <div class="upload-hint">支持 jpg/png，≤10MB · 30 分钟内有效 · AI 自动识别性别</div>
+          </div>
+        </div>
+        <input ref="fileInput" type="file" accept="image/jpeg,image/png" style="display:none;" @change="onFileChange"/>
+        <div v-if="userPhotoSessionKey" style="margin-top:8px;font-size:13px;color:#67c23a;">
+          ✓ 照片已上传
+          <button class="btn-link" @click="clearPhoto">清除照片</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 搭配来源（二选一） -->
+    <div class="ai-section outfit-mode-card">
+      <h3>搭配来源 <span class="ai-text-muted">（二选一）</span></h3>
+      <div class="photo-options">
+        <div class="photo-option" :class="{active: outfitMode === 'platform'}" @click="switchOutfitMode('platform')">
+          <div class="option-icon">🛍️</div>
+          <div class="option-label">全平台 / 指定店铺</div>
+          <div class="option-desc">AI 检索互补单品并决策搭配（2 credits）</div>
+        </div>
+        <div class="photo-option" :class="{active: outfitMode === 'picked'}" @click="switchOutfitMode('picked')">
+          <div class="option-icon">🎽</div>
+          <div class="option-label">从衣橱/购物车/订单挑选</div>
+          <div class="option-desc">用户选定单品直接 VTON 生成（5 credits）</div>
+        </div>
+      </div>
+      <div class="form-hint" style="margin-top:8px;">
+        {{ outfitMode === 'platform'
+            ? 'AI 将从全平台或指定店铺的商品中检索互补单品，按风格决策搭配后 VTON 生成。'
+            : '用户从衣橱/购物车/订单选好搭配单品后，直接按选定单品 + 模特图 VTON 生成，无需 LLM 检索。' }}
+      </div>
+
+      <!-- 指定店铺（仅 platform 模式下展开显示，紧跟搭配来源选项下方） -->
+      <div v-if="outfitMode === 'platform'" style="margin-top:16px;padding:12px 14px;background:#fafafa;border:1px solid #ebeef5;border-radius:6px;">
+        <div class="form-label" style="margin-bottom:8px;">
+          指定店铺 <span class="ai-text-muted">（可选，单选/多选）</span>
+        </div>
+        <div class="form-row">
+          <select v-model="shopMode" class="form-select">
+            <option value="all">全平台</option>
+            <option value="specific">指定店铺</option>
+          </select>
+        </div>
+        <div v-if="shopMode === 'specific'" style="margin-top:12px;">
+          <!-- 搜索框 + 全选/清空按钮 -->
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input v-model="shopSearchKeyword" class="form-input"
+                   placeholder="输入店铺名称搜索，或直接从下方列表选择"
+                   type="text" style="flex:1;"
+                   @focus="onShopSearchFocus"
+                   @blur="onShopSearchBlur"/>
+            <button v-if="!isAllShopsSelected && shopList.length > 0"
+                    class="btn-secondary" style="font-size:12px;padding:6px 12px;white-space:nowrap;"
+                    @click="selectAllShops">全选</button>
+            <button v-if="selectedShops.length > 0"
+                    class="btn-link" style="font-size:12px;white-space:nowrap;color:#f56c6c;"
+                    @click="clearAllShops">清空</button>
+          </div>
+
+          <!-- 店铺下拉列表（聚焦或有搜索词时显示） -->
+          <div v-if="showShopDropdown" class="shop-dropdown">
+            <!-- 列表头：总数统计 -->
+            <div style="padding:6px 12px;background:#f5f7fa;font-size:12px;color:#909399;border-bottom:1px solid #ebeef5;">
+              共 {{ shopList.length }} 家店铺 · 已选 {{ selectedShops.length }} 家
+            </div>
+            <div v-for="shop in filteredShops" :key="shop.id"
+                 class="shop-option" :class="{disabled: isShopSelected(shop.id)}"
+                 @click="toggleShop(shop)">
+              <span>{{ shop.shopName }}</span>
+              <span v-if="isShopSelected(shop.id)" class="shop-check">✓ 已选</span>
+              <span v-else style="color:#c0c4cc;font-size:12px;">点击选择</span>
+            </div>
+            <div v-if="filteredShops.length === 0" style="padding:12px;text-align:center;color:#909399;font-size:13px;">
+              未找到匹配的店铺
+            </div>
+          </div>
+          <div v-else-if="shopList.length === 0 && shopListLoaded" class="form-hint" style="margin-top:6px;color:#909399;">
+            店铺列表为空
+          </div>
+          <div v-else-if="!shopListLoaded" class="form-hint" style="margin-top:6px;color:#909399;">
+            店铺列表加载中...
+          </div>
+
+          <!-- 未选店铺提示：默认全平台 -->
+          <div v-if="selectedShops.length === 0 && shopList.length > 0"
+               class="form-hint" style="margin-top:8px;color:#e6a23c;padding:8px 10px;background:#fdf6ec;border:1px solid #f5dab1;border-radius:4px;">
+            ℹ 未选店铺时，将从全平台商品中搭配（等同于"全平台"模式）
+          </div>
+
+          <!-- 已选店铺标签 -->
+          <div v-if="selectedShops.length > 0" class="chip-group shop-chips">
+            <span v-for="shop in selectedShops" :key="shop.id"
+                  class="chip active" @click="removeShop(shop.id)">
+              {{ shop.shopName }} ✕
+            </span>
+          </div>
+          <div v-if="selectedShops.length > 0" class="form-hint" style="margin-top:6px;">
+            已选 {{ selectedShops.length }} / {{ shopList.length }} 家店铺
+            <span v-if="isAllShopsSelected" style="color:#67c23a;margin-left:4px;">（已全选，等同于全平台）</span>
+            <span style="margin-left:4px;">· 点击标签可移除</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 风格驱动模式：搭配偏好 -->
+    <div class="ai-section" v-if="outfitMode === 'platform'">
+      <h3>搭配偏好</h3>
+
+      <!-- 风格标签 -->
+      <div class="form-group">
+        <label class="form-label">风格标签 <span class="ai-text-muted">（多选，至少填一项）</span></label>
+        <div class="chip-group">
+          <span v-for="tag in styleOptions" :key="tag"
+                class="chip" :class="{active: styleTags.indexOf(tag) >= 0}"
+                @click="toggleChip('styleTags', tag)">{{ tag }}</span>
+        </div>
+      </div>
+
+      <!-- 颜色偏好（折叠，多选 should 加权） -->
+      <div class="collapse-section">
+        <div class="collapse-header" :class="{expanded: collapse.color}" @click="collapse.color = !collapse.color">
+          <span>颜色偏好</span><span class="arrow">▶</span>
+        </div>
+        <div class="collapse-body" :class="{expanded: collapse.color}">
+          <div class="chip-group">
+            <span v-for="c in colorOptions" :key="c.value"
+                  class="chip" :class="{active: color.indexOf(c.value) >= 0}"
+                  @click="toggleChip('color', c.value)">{{ c.label }}</span>
+          </div>
+          <div class="form-hint">可多选，作为偏好加权（非强制全品类同色），未选则不限制颜色</div>
+        </div>
+      </div>
+
+      <!-- 品类组合（折叠） -->
+      <div class="collapse-section">
+        <div class="collapse-header" :class="{expanded: collapse.category}" @click="collapse.category = !collapse.category">
+          <span>品类组合</span><span class="arrow">▶</span>
+        </div>
+        <div class="collapse-body" :class="{expanded: collapse.category}">
+          <div class="chip-group">
+            <span v-for="cat in categoryOptions" :key="cat"
+                  class="chip" :class="{active: categories.indexOf(cat) >= 0}"
+                  @click="toggleChip('categories', cat)">{{ cat }}</span>
+          </div>
+          <div class="form-hint">默认上衣+下装+鞋，可追加帽子/包/配饰</div>
+        </div>
+      </div>
+
+      <!-- 场景描述 -->
+      <div class="form-group">
+        <label class="form-label">场景描述 <span class="ai-text-muted">（≤50 字）</span></label>
+        <textarea v-model="sceneDesc" class="form-textarea" placeholder="如：下周面试 / 周末约会 / 闺蜜下午茶..." maxlength="50"></textarea>
+      </div>
+    </div>
+
+    <!-- 用户选定模式：挑选单品 -->
+    <div class="ai-section" v-if="outfitMode === 'picked'">
+      <h3>挑选搭配单品
+        <span class="ai-text-muted" style="font-size:13px;margin-left:8px;">
+          （上限 {{ MAX_PICKED }} 件 · 同品类互斥）
+        </span>
+      </h3>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+        <div class="picker-summary-card" @click="openPicker('wardrobe')">
+          <div style="font-size:14px;color:#333;">我的衣橱</div>
+          <div style="font-size:20px;color:#e54346;font-weight:bold;margin-top:4px;">{{ wardrobeItemIds.length }} 件</div>
+        </div>
+        <div class="picker-summary-card" @click="openPicker('cart')">
+          <div style="font-size:14px;color:#333;">购物车</div>
+          <div style="font-size:20px;color:#e54346;font-weight:bold;margin-top:4px;">{{ cartItemIds.length }} 件</div>
+        </div>
+        <div class="picker-summary-card" @click="openPicker('order')">
+          <div style="font-size:14px;color:#333;">已购订单</div>
+          <div style="font-size:20px;color:#e54346;font-weight:bold;margin-top:4px;">{{ orderItemIds.length }} 件</div>
+        </div>
+        <div class="picker-summary-card" @click="openPicker('search')">
+          <div style="font-size:14px;color:#333;">搜索单品 🔍</div>
+          <div style="font-size:20px;color:#e54346;font-weight:bold;margin-top:4px;">{{ searchItemIds.length }} 件</div>
+        </div>
+      </div>
+      <!-- 已选品类清单（同品类互斥可视化） -->
+      <div v-if="pickedCategoriesList.length > 0" class="picked-categories-list">
+        <span class="form-hint" style="margin-right:8px;">已选品类：</span>
+        <span v-for="p in pickedCategoriesList" :key="p.category"
+              class="chip active" style="cursor:default;margin-right:6px;font-size:12px;">
+          {{ p.category }}（{{ p.sourceLabel }}）
+        </span>
+      </div>
+      <!-- 已选单品明细（支持取消，点击 ✕ 移除该单品） -->
+      <div v-if="pickedItemsList.length > 0" class="picked-items-list">
+        <div v-for="item in pickedItemsList" :key="item.key" class="picked-item-card">
+          <img :src="item.image" alt=""/>
+          <div class="picked-item-info">
+            <div class="picked-item-name">{{ item.name }}</div>
+            <div class="picked-item-meta">
+              <span class="wardrobe-tag" style="background:#1976d2;">{{ item.category }}</span>
+              <span style="color:#909399;">{{ item.sourceLabel }} · 点击下方入口可替换</span>
+            </div>
+          </div>
+          <button class="picked-item-remove" title="取消选择" @click="removePicked(item.key)">✕</button>
+        </div>
+      </div>
+      <div class="picked-summary-bar">
+        已选 <b>{{ pickedCount }}</b> / {{ MAX_PICKED }} 件单品，AI 将直接按 <b>选定单品 + 模特图</b> 走 VTON 生成（5 credits），无需 LLM 检索 Qdrant。
+      </div>
+      <div class="form-hint" style="margin-top:8px;">
+        提示：可跨衣橱/购物车/订单/搜索组合挑选，每个入口可多选（不同品类可各选多件）；同品类只能选 1 件；<b style="color:#e6a23c;">全身套装与上衣/下装互斥</b>（已选全身套装则不能再选上衣/下装，反之亦然）
+      </div>
+    </div>
+
+    <!-- P2-1 修复：Phase 2.5 个性化推荐画像状态展示 -->
+    <div class="ai-section" v-if="profileStatus.loaded && profileStatus.confidence > 0">
+      <div class="collapse-section">
+        <div class="collapse-header" :class="{expanded: collapse.profile}" @click="collapse.profile = !collapse.profile">
+          <span>个性化推荐 <span class="ai-text-muted">（置信度 {{ profileStatus.confidence }}%）</span></span><span class="arrow">▶</span>
+        </div>
+        <div class="collapse-body" :class="{expanded: collapse.profile}">
+          <div class="form-hint" style="margin-bottom:8px;">
+            本次推荐将基于您的画像偏好增强（置信度 {{ profileStatus.confidence }}%）
+          </div>
+          <div v-if="profileStatus.topStyles.length > 0" style="margin-bottom:6px;">
+            <span class="form-hint" style="margin-right:8px;">偏好风格：</span>
+            <span v-for="s in profileStatus.topStyles" :key="s" class="chip active" style="cursor:default;margin-right:4px;font-size:12px;">{{ s }}</span>
+          </div>
+          <div v-if="profileStatus.topColors.length > 0">
+            <span class="form-hint" style="margin-right:8px;">偏好颜色：</span>
+            <span v-for="c in profileStatus.topColors" :key="c" class="chip active" style="cursor:default;margin-right:4px;font-size:12px;">{{ c }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 备注（选填） -->
+    <div class="ai-section">
+      <div class="collapse-section">
+        <div class="collapse-header" :class="{expanded: collapse.note}" @click="collapse.note = !collapse.note">
+          <span>备注 <span class="ai-text-muted">（选填）</span></span><span class="arrow">▶</span>
+        </div>
+        <div class="collapse-body" :class="{expanded: collapse.note}">
+          <textarea v-model="note" class="form-textarea" placeholder="补充任何想法，如：希望显瘦、避免亮色..." maxlength="50"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主按钮 -->
+    <div style="margin-top:20px;text-align:center;">
+      <!-- v3.1 §10.2：AI 服务故障时按钮置灰 + 提示 -->
+      <button v-if="!serviceAvailable" class="btn-ai-outfit" disabled style="padding:14px 60px;font-size:18px;opacity:0.5;cursor:not-allowed;">
+        生成搭配
+      </button>
+      <button v-else class="btn-ai-outfit" :disabled="!canSubmit || submitting" @click="submit" style="padding:14px 60px;font-size:18px;">
+        {{ submitting ? '提交中...' : (outfitMode === 'picked' ? '生成搭配（消耗 5 credits）' : '生成搭配（消耗 17 credits）') }}
+      </button>
+      <div class="form-hint" v-if="!canSubmit && serviceAvailable" style="margin-top:8px;color:#ff9800;">
+        {{ outfitMode === 'picked' ? '请至少挑选 1 件单品' : '请至少选择一种风格或填写场景描述' }}
+      </div>
+      <!-- v3.1 §10.2：服务故障友好提示 + 重试按钮 -->
+      <div v-if="!serviceAvailable" style="margin-top:12px;padding:12px 16px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;color:#6d4c41;font-size:13px;">
+        ⚠ AI 搭配服务暂时不可用，可点击"重试"重新发起。
+        <button class="btn-ghost" style="margin-left:12px;padding:6px 20px;" @click="retryService">重试</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 挑选模态框 -->
+  <div class="modal-mask" v-if="picker.show" @click.self="picker.show = false">
+    <div class="modal-box" style="max-width:700px;">
+      <h3>{{ pickerTitle }}</h3>
+
+      <!-- 搜索区（仅 type='search' 时显示） -->
+      <div v-if="picker.type === 'search'" class="picker-search-area">
+        <div class="picker-search-row">
+          <!-- 店铺筛选（按 item.creater 过滤，shopList 来自 /shop/list，含 userId） -->
+          <select v-model="picker.searchShopUserId" class="form-select" style="width:150px;">
+            <option value="">全部店铺</option>
+            <template v-for="shop in shopList">
+              <option v-if="shop.userId" :key="shop.id" :value="shop.userId">{{ shop.shopName }}</option>
+            </template>
+          </select>
+          <select v-model="picker.searchCategory" class="form-select" style="width:110px;">
+            <option value="">全部品类</option>
+            <option v-for="cat in outfitCategoryOptions" :key="cat" :value="cat">{{ cat }}</option>
+          </select>
+          <input v-model="picker.searchKeyword" class="form-input"
+                 placeholder="输入商品名称/关键字搜索..." type="text"
+                 @keyup.enter="searchPickItems"
+                 style="flex:1;"/>
+          <button class="btn-confirm" @click="searchPickItems" style="padding:6px 16px;">搜索</button>
+        </div>
+        <div class="form-hint" style="margin-top:6px;font-size:12px;">
+          可选店铺查看其店内商品 · 仅展示穿搭类目商品（上衣/下装/全身套装/鞋/帽子/包/配饰）
+        </div>
+      </div>
+
+      <!-- 已选品类提示（跨源冲突警告） -->
+      <div v-if="pickedCategoriesList.length > 0" class="picker-conflict-hint">
+        <span style="font-size:12px;color:#666;">其他入口已选品类：</span>
+        <span v-for="p in pickedCategoriesList" :key="p.category + p.source"
+              class="chip" style="cursor:default;margin-right:4px;font-size:11px;background:#f5f5f5;">
+          {{ p.category }}（{{ p.sourceLabel }}）
+        </span>
+        <div style="font-size:11px;color:#ff9800;margin-top:4px;">
+          ⚠ 同品类只能选 1 件，若选同类新品将自动替换
+        </div>
+      </div>
+
+      <div v-if="picker.loading" class="ai-no-data">加载中...</div>
+      <div v-else-if="picker.items.length === 0" class="ai-no-data">
+        {{ picker.type === 'search' ? '请输入关键字搜索商品' : '暂无数据' }}
+      </div>
+      <div v-else class="picker-list">
+        <div v-for="it in picker.items" :key="(it.id || it.itemId) + '_' + (it.category || '')"
+             class="picker-item" :class="{
+               selected: isPicked(it),
+               'cat-conflict': isCategoryPickedByOther(it) && !isPicked(it)
+             }"
+             @click="togglePick(it)">
+          <input type="checkbox" class="picker-checkbox" :checked="isPicked(it)" @click.stop="togglePick(it)"/>
+          <img :src="it.image || it.photoUrl || it.outfitResultUrl" alt=""/>
+          <div class="picker-item-info">
+            <div class="picker-item-name">
+              {{ it.name || ('AI 搭配 #' + (it.recordId || it.id)) }}
+              <span v-if="it.category" class="wardrobe-tag" style="background:#1976d2;">{{ it.category }}</span>
+            </div>
+            <div class="picker-item-meta">
+              <span v-if="it.color"> · {{ it.color }}</span>
+              <span v-if="it.price"> · ￥{{ formatPrice(it.price) }}</span>
+              <span v-if="it.itemType === 4" class="wardrobe-tag" style="background:#f57c00;">AI 搭配</span>
+              <span v-if="isCategoryPickedByOther(it) && !isPicked(it)"
+                    style="color:#ff9800;font-size:11px;margin-left:6px;">⚠ 同品类已选，将替换</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 搜索结果分页：加载更多（解决搜索单品显示不全） -->
+      <div v-if="picker.type === 'search' && picker.searchHasMore" class="picker-load-more" @click="searchPickItems(true)">
+        加载更多（已显示 {{ picker.items.length }} / {{ picker.searchTotal }}）
+      </div>
+      <div class="modal-actions">
+        <span style="flex:1;font-size:12px;color:#666;">
+          已选 {{ picker.selected.length }} 件 / 全局 {{ pickedCount }} 件（上限 {{ MAX_PICKED }}）
+        </span>
+        <button class="btn-cancel" @click="picker.show = false">取消</button>
+        <button class="btn-confirm" @click="confirmPicker">确认选择（{{ picker.selected.length }}）</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 充值对话框 -->
+  <recharge-dialog :show="showRechargeDialog"
+                   :current-balance="creditsBalance"
+                   :wallet-balance="walletBalance"
+                   :first-gift-received="firstGiftReceived"
+                   @close="showRechargeDialog = false"
+                   @recharged="onRecharged">
+  </recharge-dialog>
+
+  <!-- 系统模特选择对话框（性别过滤扩展 2026-07-27 新增）-->
+  <div v-if="showSystemModelPicker" class="modal-mask" @click.self="showSystemModelPicker = false">
+    <div class="modal-box" style="max-width:900px;">
+      <div class="modal-header">
+        <h3>选择系统模特</h3>
+        <button class="modal-close" @click="showSystemModelPicker = false">×</button>
+      </div>
+      <div class="modal-body" style="padding:16px;">
+        <!-- 性别筛选 -->
+        <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+          <span style="font-size:13px;color:#666;">性别筛选：</span>
+          <button class="chip" :class="{active: systemModelGenderFilter === null}"
+                  @click="switchSystemModelGenderFilter(null)">全部</button>
+          <button class="chip" :class="{active: systemModelGenderFilter === 'male'}"
+                  @click="switchSystemModelGenderFilter('male')">♂ 男模特</button>
+          <button class="chip" :class="{active: systemModelGenderFilter === 'female'}"
+                  @click="switchSystemModelGenderFilter('female')">♀ 女模特</button>
+        </div>
+        <!-- 模特列表 -->
+        <div v-if="systemModelLoading" style="text-align:center;padding:40px 0;color:#999;">加载中...</div>
+        <div v-else-if="systemModelList.length === 0" style="text-align:center;padding:40px 0;color:#999;">
+          暂无符合条件的模特图
+        </div>
+        <div v-else style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;max-height:480px;overflow-y:auto;">
+          <div v-for="m in systemModelList" :key="m.id"
+               class="model-card"
+               :class="{selected: selectedSystemModel && selectedSystemModel.id === m.id}"
+               @click="selectSystemModel(m)"
+               style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color 0.2s;">
+            <div style="position:relative;">
+              <img :src="m.imageUrl" :alt="m.note || '模特'"
+                   style="width:100%;height:200px;object-fit:cover;display:block;"/>
+              <span class="gender-badge" :class="m.gender"
+                    style="position:absolute;top:6px;right:6px;padding:2px 8px;border-radius:10px;font-size:11px;color:#fff;"
+                    :style="{background: m.gender === 'male' ? '#1976d2' : '#e91e63'}">
+                {{ genderLabel(m.gender) }}
+              </span>
+            </div>
+            <div style="padding:8px 10px;font-size:12px;color:#333;background:#fff;">
+              <div v-if="m.height || m.bodyType || m.ageRange" style="color:#666;">
+                {{ m.height ? m.height + 'cm · ' : '' }}{{ bodyTypeLabel(m.bodyType) }} · {{ ageRangeLabel(m.ageRange) }}
+              </div>
+              <div v-if="m.note" style="color:#999;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                {{ m.note }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" @click="showSystemModelPicker = false">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 身体信息档案切换对话框 -->
+  <div v-if="showBodyProfileSwitcher" class="modal-mask" @click.self="showBodyProfileSwitcher = false">
+    <div class="modal-box" style="max-width:600px;">
+      <div class="modal-header">
+        <h3>切换身体信息档案</h3>
+        <button class="modal-close" @click="showBodyProfileSwitcher = false">×</button>
+      </div>
+      <div class="modal-body" style="padding:16px;">
+        <div v-if="bodyProfileList.length === 0" style="text-align:center;padding:40px 0;color:#999;">
+          暂无身体信息档案，请去<strong>「我的衣橱」</strong>登记
+        </div>
+        <div v-else style="display:flex;flex-direction:column;gap:10px;">
+          <div v-for="p in bodyProfileList" :key="p.id"
+               class="profile-card"
+               :class="{selected: bodyProfile && bodyProfile.id === p.id}"
+               @click="selectBodyProfile(p)"
+               style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;cursor:pointer;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <strong>{{ p.profileName || '档案 #' + p.id }}</strong>
+                <span v-if="p.isDefault === 1" style="margin-left:6px;padding:1px 6px;border-radius:8px;font-size:11px;background:#67c23a;color:#fff;">默认</span>
+                <span class="gender-badge" :class="p.gender"
+                      style="margin-left:8px;padding:2px 8px;border-radius:10px;font-size:11px;color:#fff;"
+                      :style="{background: p.gender === 'male' ? '#1976d2' : '#e91e63'}">
+                  {{ genderLabel(p.gender) }}
+                </span>
+              </div>
+              <div style="font-size:12px;color:#666;">
+                {{ p.height || '-' }}cm / {{ p.weight || '-' }}kg
+              </div>
+            </div>
+            <div style="margin-top:6px;font-size:12px;color:#666;">
+              {{ bodyTypeLabel(p.bodyType) }} · {{ ageRangeLabel(p.ageRange) }}
+              <span v-if="p.measuredAt"> · 测量于 {{ p.measuredAt }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <a href="/wardrobe.html" class="btn-secondary" style="text-decoration:none;">去衣橱管理</a>
+        <button class="btn-cancel" @click="showBodyProfileSwitcher = false">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- IP 授权弹窗：进页面时询问用户是否允许获取 IP 定位 -->
+  <div v-if="cityConsentVisible" class="modal-mask" @click.self="denyCityConsent">
+    <div class="modal-box" style="max-width:440px;">
+      <div class="modal-header">
+        <h3>位置信息授权</h3>
+      </div>
+      <div class="modal-body" style="padding:20px;text-align:center;">
+        <div style="font-size:48px;color:#4a90d9;margin-bottom:12px;">📍</div>
+        <p style="font-size:15px;color:#333;line-height:1.7;margin:0 0 8px;">
+          AI 随心搭需要获取您的所在城市，用于查询当地天气以推荐合适的穿搭。
+        </p>
+        <p style="font-size:13px;color:#999;line-height:1.6;margin:0;">
+          允许后将通过 IP 定位获取您所在城市；拒绝将使用默认城市（北京）。
+        </p>
+      </div>
+      <div class="modal-actions" style="justify-content:center;gap:12px;">
+        <button class="btn-cancel" @click="denyCityConsent">使用默认城市</button>
+        <button class="btn-secondary" style="background:#4a90d9;color:#fff;border-color:#4a90d9;" @click="allowCityConsent">允许获取</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script src="./js/components/credits-bar.js"></script>
+<script src="./js/components/recharge-dialog.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    // credits 余额
+    creditsBalance: 0,
+    expiringSoon: 0,
+    nearestExpiry: '',
+    firstGiftReceived: false,
+    walletBalance: 0,
+    showRechargeDialog: false,
+
+    // 照片会话
+    photoMode: 'default',
+    userPhotoUrl: '',
+    userPhotoSessionKey: util.getPhotoSession() || '',
+
+    // 性别与服装匹配（2026-07-27 新增）
+    // 用户身体信息档案（必填校验：未登记则阻断提交）
+    bodyProfile: null,           // 当前选定的身体信息档案 {id, gender, height, weight, ...}
+    bodyProfileList: [],         // 用户所有身体信息档案列表
+    bodyProfileLoaded: false,    // 档案是否已加载完成（避免未加载时误判为未登记）
+    showBodyProfileSwitcher: false, // 档案切换模态框
+    // 系统模特选择（photoMode === 'default' 时，让用户选定具体男/女模特）
+    systemModelList: [],         // 系统模特图列表
+    systemModelLoading: false,   // 列表加载中
+    selectedSystemModel: null,   // 用户选定的系统模特 {id, imageUrl, gender, ...}
+    showSystemModelPicker: false, // 模特选择模态框
+    systemModelGenderFilter: null, // 模特列表性别筛选 null=全部 / male / female
+
+    // 搭配模式（platform / picked），二选一
+    outfitMode: 'platform',
+
+    // 风格驱动模式字段
+    styleTags: [],
+    // 颜色偏好（2026-07-31 改造）：从单选 null 改为多选数组，后端 should 加权非强制全品类同色
+    color: [],
+    categories: ['上衣', '下装', '鞋'],
+    shopMode: 'all',           // 'all' 全平台 / 'specific' 指定店铺
+    shopSearchKeyword: '',     // 店铺名称搜索关键字
+    selectedShops: [],         // [{id, shopName}] 已选店铺列表
+    shopList: [],              // 全部店铺列表（接口加载）
+    shopListLoaded: false,
+    shopDropdownFocus: false,  // 搜索框是否聚焦（控制下拉显示）
+    sceneDesc: '',
+
+    // 用户选定模式字段
+    wardrobeItemIds: [],
+    cartItemIds: [],
+    orderItemIds: [],
+    searchItemIds: [],   // 搜索单品（2026-07-28 新增）
+
+    // 用户选定模式约束
+    MAX_PICKED: 5,        // 全局单品数量上限（上衣/下装/全身套装/鞋/帽子/包/配饰 7 类，最多 5 件）
+    // 穿搭类目白名单（与 OutfitCategories.java / category_mapping.py 保持一致）
+    outfitCategoryOptions: ['上衣', '下装', '全身套装', '鞋', '帽子', '包', '配饰'],
+
+    // 全局已选商品详情缓存（用于跨源同品类互斥校验）
+    // 结构：{ itemId: { id, itemId, category, name, image, source: 'wardrobe'|'cart'|'order'|'search' } }
+    // 注：wardrobe source 的 id 是 user_wardrobe.id（不是 itemId），故 key 用 source+id 复合键
+    pickedDetailMap: {},
+
+    // 通用
+    note: '',
+    submitting: false,
+    // v3.1 §10.2：AI 服务可用性（5xx/网络错误时置 false，按钮置灰 + 显示重试）
+    serviceAvailable: true,
+    // IP 授权弹窗显示控制
+    cityConsentVisible: false,
+    // P2-1 修复：Phase 2.5 个性化推荐画像状态展示
+    profileStatus: {
+      loaded: false,
+      confidence: 0,
+      topStyles: [],
+      topColors: [],
+    },
+
+    // 选项
+    styleOptions: ['通勤', '休闲', '约会', '运动', '商务', '街头', '复古', '欧美', '亚洲', '清新'],
+    // 颜色选项（2026-07-31 改造）：
+    // 1) value 改为中文，与后台商品管理 list.js colorOptions 对齐（Qdrant color 字段存中文）
+    // 2) 选项扩展至 17 色，对齐后台 18 色（不含"其他"，"其他"不适合作为用户偏好）
+    // 3) 新增金色、银色
+    colorOptions: [
+      { value: '黑色', label: '黑色' }, { value: '白色', label: '白色' },
+      { value: '红色', label: '红色' }, { value: '橙色', label: '橙色' },
+      { value: '黄色', label: '黄色' }, { value: '绿色', label: '绿色' },
+      { value: '青色', label: '青色' }, { value: '蓝色', label: '蓝色' },
+      { value: '紫色', label: '紫色' }, { value: '粉色', label: '粉色' },
+      { value: '灰色', label: '灰色' }, { value: '棕色', label: '棕色' },
+      { value: '卡其色', label: '卡其色' }, { value: '米色', label: '米色' },
+      { value: '花色', label: '花色' }, { value: '金色', label: '金色' },
+      { value: '银色', label: '银色' },
+    ],
+    categoryOptions: ['上衣', '下装', '全身套装', '鞋', '帽子', '包', '配饰'],
+
+    // 折叠面板状态
+    collapse: {
+      color: false, category: false, shop: false,
+      note: false, profile: false,
+    },
+
+    // 挑选模态框
+    picker: {
+      show: false,
+      type: '',  // wardrobe / cart / order / search
+      items: [],
+      selected: [],       // ID 数组（与 wardrobeItemIds/cartItemIds/orderItemIds/searchItemIds 同步）
+      selectedDetail: [], // 对象数组 [{id, itemId, category, name, image}]（用于品类校验）
+      loading: false,
+      // search 类型专用
+      searchKeyword: '',
+      searchCategory: '',  // '' 全部品类 / '上衣' / '下装' / ...
+      searchShopUserId: '', // '' 全部店铺 / 商家 userId（对应 item.creater）
+      searchPageNo: 1,
+      searchPageSize: 20,
+      searchTotal: 0,      // 后端匹配总数（用于加载更多展示）
+      searchHasMore: false, // 是否还有下一页
+    },
+  },
+  computed: {
+    userId() { return util.getUserId(); },
+    canSubmit() {
+      if (this.outfitMode === 'picked') {
+        // 用户选定模式：至少挑 1 件单品
+        return this.wardrobeItemIds.length > 0
+          || this.cartItemIds.length > 0
+          || this.orderItemIds.length > 0
+          || this.searchItemIds.length > 0;
+      }
+      // 风格驱动模式：styleTags/color/sceneDesc/note 任一非空即可
+      return this.styleTags.length > 0
+        || this.color.length > 0
+        || !!this.sceneDesc.trim()
+        || !!this.note.trim();
+    },
+    pickerTitle() {
+      const map = { wardrobe: '我的衣橱', cart: '购物车', order: '已购订单', search: '搜索单品' };
+      return map[this.picker.type] || '挑选商品';
+    },
+    // 按关键字过滤店铺列表（已选的标灰，未选的可点）
+    // 改进：搜索框聚焦时即使没输入关键字也显示全部店铺
+    filteredShops() {
+      const kw = this.shopSearchKeyword.toLowerCase().trim();
+      if (!kw) return this.shopList;
+      return this.shopList.filter(s => {
+        const name = (s.shopName || '').toLowerCase();
+        return name.indexOf(kw) >= 0;
+      });
+    },
+    // 下拉是否显示：搜索框聚焦 或 有搜索关键字时显示
+    showShopDropdown() {
+      return this.shopDropdownFocus && this.shopList.length > 0;
+    },
+    // 是否已全选所有店铺
+    isAllShopsSelected() {
+      return this.shopList.length > 0 && this.selectedShops.length === this.shopList.length;
+    },
+    // 模式已挑单品总数（四类来源合计）
+    pickedCount() {
+      return this.wardrobeItemIds.length
+        + this.cartItemIds.length
+        + this.orderItemIds.length
+        + this.searchItemIds.length;
+    },
+    // 已选品类清单（用于跨源同品类互斥可视化 + 提交时校验）
+    // 返回 [{category, source, sourceLabel, id, name}]
+    pickedCategoriesList() {
+      const list = [];
+      const sourceLabels = { wardrobe: '衣橱', cart: '购物车', order: '订单', search: '搜索' };
+      Object.keys(this.pickedDetailMap).forEach(key => {
+        const d = this.pickedDetailMap[key];
+        if (d && d.category) {
+          list.push({
+            category: d.category,
+            source: d.source,
+            sourceLabel: sourceLabels[d.source] || d.source,
+            id: d.id,
+            name: d.name,
+          });
+        }
+      });
+      return list;
+    },
+    // 已选单品明细（主页面展示 + 取消入口）
+    // 返回 [{key, id, itemId, category, name, image, source, sourceLabel}]
+    pickedItemsList() {
+      const sourceLabels = { wardrobe: '衣橱', cart: '购物车', order: '订单', search: '搜索' };
+      return Object.keys(this.pickedDetailMap).map(key => {
+        const d = this.pickedDetailMap[key];
+        if (!d) return null;
+        return {
+          key,
+          id: d.id,
+          itemId: d.itemId,
+          category: d.category,
+          name: d.name,
+          image: d.image,
+          source: d.source,
+          sourceLabel: sourceLabels[d.source] || d.source,
+        };
+      }).filter(Boolean);
+    },
+  },
+  watch: {
+    // v3.1 §11.3：表单草稿 localStorage 持久化（切走再回来不丢失）
+    outfitMode() { this.saveDraft(); },
+    styleTags() { this.saveDraft(); },
+    color() { this.saveDraft(); },
+    categories() { this.saveDraft(); },
+    shopMode() { this.saveDraft(); },
+    selectedShops() { this.saveDraft(); },
+    sceneDesc() { this.saveDraft(); },
+    note() { this.saveDraft(); },
+    wardrobeItemIds() { this.saveDraft(); },
+    cartItemIds() { this.saveDraft(); },
+    orderItemIds() { this.saveDraft(); },
+    searchItemIds() { this.saveDraft(); },
+    'collapse.color'() { this.saveDraft(); },
+    'collapse.category'() { this.saveDraft(); },
+    'collapse.shop'() { this.saveDraft(); },
+    'collapse.note'() { this.saveDraft(); },
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.restoreDraft();
+    this.loadCredits();
+    this.loadShopList();
+    this.loadBodyProfileList();
+    this.loadProfileStatus();
+    if (this.userPhotoSessionKey) this.photoMode = 'custom';
+    // 城市定位：进页面时检查缓存，过期则弹窗询问
+    this.initCityConsent();
+  },
+  methods: {
+    formatPrice(val) { return util.formatPrice(val); },
+    // 城市定位：缓存有效则续期，过期则弹窗询问用户是否允许获取定位
+    initCityConsent() {
+      if (util.getUserCity() !== null) {
+        // 缓存有效（含真实城市或"北京"兜底）：续期 30 分钟 TTL
+        util.renewCityCache();
+      } else {
+        // 缓存过期或不存在：弹窗询问
+        this.cityConsentVisible = true;
+      }
+    },
+    // 用户点击"允许获取定位"
+    async allowCityConsent() {
+      this.cityConsentVisible = false;
+      await util.requestUserCity();
+    },
+    // 用户点击"使用默认城市"
+    denyCityConsent() {
+      this.cityConsentVisible = false;
+      util.setDefaultCity();
+    },
+    // v3.1 §11.3：表单草稿持久化
+    saveDraft() {
+      util.store.set('outfit_form_draft', {
+        outfitMode: this.outfitMode,
+        styleTags: this.styleTags,
+        color: this.color,
+        categories: this.categories,
+        shopMode: this.shopMode,
+        selectedShops: this.selectedShops,
+        sceneDesc: this.sceneDesc,
+        note: this.note,
+        wardrobeItemIds: this.wardrobeItemIds,
+        cartItemIds: this.cartItemIds,
+        orderItemIds: this.orderItemIds,
+        searchItemIds: this.searchItemIds,
+        pickedDetailMap: this.pickedDetailMap,
+        collapse: { ...this.collapse },
+        savedAt: Date.now(),
+      });
+    },
+    restoreDraft() {
+      const draft = util.store.get('outfit_form_draft');
+      if (!draft) return;
+      // 仅恢复 1 小时内的草稿，避免陈旧数据
+      if (draft.savedAt && Date.now() - draft.savedAt > 60 * 60 * 1000) {
+        localStorage.removeItem('outfit_form_draft');
+        return;
+      }
+      if (draft.outfitMode) this.outfitMode = draft.outfitMode;
+      if (Array.isArray(draft.styleTags)) this.styleTags = draft.styleTags;
+      // 兼容旧草稿（2026-07-31 改造）：color 原为字符串/null，现为数组；
+      // 非数组的旧值直接丢弃（旧英文值 black/white 等也不再适用，新 colorOptions 用中文 value）
+      if (Array.isArray(draft.color)) this.color = draft.color;
+      if (Array.isArray(draft.categories)) this.categories = draft.categories;
+      if (draft.shopMode) this.shopMode = draft.shopMode;
+      if (Array.isArray(draft.selectedShops)) this.selectedShops = draft.selectedShops;
+      if (typeof draft.sceneDesc === 'string') this.sceneDesc = draft.sceneDesc;
+      if (typeof draft.note === 'string') this.note = draft.note;
+      if (Array.isArray(draft.wardrobeItemIds)) this.wardrobeItemIds = draft.wardrobeItemIds;
+      if (Array.isArray(draft.cartItemIds)) this.cartItemIds = draft.cartItemIds;
+      if (Array.isArray(draft.orderItemIds)) this.orderItemIds = draft.orderItemIds;
+      if (Array.isArray(draft.searchItemIds)) this.searchItemIds = draft.searchItemIds;
+      if (draft.pickedDetailMap && typeof draft.pickedDetailMap === 'object') {
+        this.pickedDetailMap = draft.pickedDetailMap;
+      }
+      if (draft.collapse) Object.assign(this.collapse, draft.collapse);
+    },
+    clearDraft() {
+      localStorage.removeItem('outfit_form_draft');
+    },
+    loadCredits() {
+      axios.get('/credits/balance/' + this.userId).then(res => {
+        this.creditsBalance = res.balance || 0;
+        this.expiringSoon = res.expiringSoon || 0;
+        this.nearestExpiry = res.nearestExpiry || '';
+        this.firstGiftReceived = !!res.firstGiftReceived;
+        // 钱包余额暂复用 credits 余额（项目无独立钱包接口）
+        // P1-7 修复：1 元 = 5 credits（见 recharge-dialog.js），即 1 credit = 0.2 元 = 20 分
+        this.walletBalance = res.walletBalance || 0;  // 真实 user.balance（分）
+      }).catch(() => {});
+    },
+    // 加载店铺列表（用于指定店铺搜索多选）
+    loadShopList() {
+      if (this.shopListLoaded) return;
+      axios.get('/shop/list').then(res => {
+        this.shopList = res || [];
+        this.shopListLoaded = true;
+      }).catch(() => {
+        this.shopList = [];
+        this.shopListLoaded = true;
+      });
+    },
+    // 性别与服装匹配（2026-07-27 新增）：加载用户身体信息档案列表
+    // 业务约束：未登记档案时阻断 AI 随心搭提交，引导用户去衣橱页登记
+    loadBodyProfileList() {
+      axios.get('/body-profile').then(res => {
+        const list = Array.isArray(res) ? res : (res.data || []);
+        this.bodyProfileList = list;
+        // 自动选定默认档案（isDefault=1 优先，否则取第一个）
+        if (list.length > 0) {
+          const def = list.find(p => p.isDefault === 1) || list[0];
+          this.bodyProfile = def;
+        }
+        this.bodyProfileLoaded = true;
+      }).catch(() => {
+        this.bodyProfileList = [];
+        this.bodyProfileLoaded = true;
+      });
+    },
+    // P2-1 修复：加载 Phase 2.5 个性化推荐画像状态（置信度 + 偏好风格/颜色）
+    loadProfileStatus() {
+      axios.get('/v1/outfit/agent/profile').then(res => {
+        const p = res || {};
+        this.profileStatus = {
+          loaded: true,
+          confidence: Math.round((p.profile_confidence || 0) * 100),
+          topStyles: (p.top_styles || []).slice(0, 3),
+          topColors: (p.top_colors || []).slice(0, 3),
+        };
+      }).catch(() => {
+        // 画像接口失败时静默降级（不影响主流程）
+        this.profileStatus.loaded = true;
+      });
+    },
+    // 加载系统模特图列表（性别过滤扩展 2026-07-27 新增）
+    // 用户在"使用默认模特"模式下，可选定具体男/女模特作为 VTON base
+    loadSystemModelList() {
+      if (this.systemModelList.length > 0) return; // 已加载过则不重复
+      this.systemModelLoading = true;
+      const params = {};
+      if (this.systemModelGenderFilter) params.gender = this.systemModelGenderFilter;
+      axios.get('/v1/outfit/agent/system-models', { params }).then(res => {
+        // 兼容后端返回 {list, total, pages} 或直接数组
+        const list = (res && res.list) ? res.list : (Array.isArray(res) ? res : []);
+        this.systemModelList = list.filter(m => m.imageUrl);
+      }).catch(() => {
+        this.systemModelList = [];
+      }).finally(() => {
+        this.systemModelLoading = false;
+      });
+    },
+    // 打开系统模特选择模态框
+    openSystemModelPicker() {
+      this.showSystemModelPicker = true;
+      this.loadSystemModelList();
+    },
+    // 切换模特列表性别筛选
+    switchSystemModelGenderFilter(gender) {
+      this.systemModelGenderFilter = gender;
+      this.systemModelList = [];
+      this.loadSystemModelList();
+    },
+    // 选定系统模特
+    selectSystemModel(model) {
+      this.selectedSystemModel = model;
+      this.showSystemModelPicker = false;
+      // 选定模特后，强制切到"使用默认模特"模式（避免与自拍冲突）
+      if (this.photoMode !== 'default') {
+        this.switchPhotoMode('default');
+      }
+    },
+    // 清除选定的系统模特
+    clearSelectedSystemModel() {
+      this.selectedSystemModel = null;
+    },
+    // 切换身体信息档案
+    selectBodyProfile(profile) {
+      this.bodyProfile = profile;
+      this.showBodyProfileSwitcher = false;
+    },
+    // 性别文案转中文
+    genderLabel(g) {
+      return g === 'male' ? '男' : (g === 'female' ? '女' : '中性');
+    },
+    // 体型文案转中文
+    bodyTypeLabel(t) {
+      const map = { slim: '苗条', standard: '标准', curvy: '曲线', plus: '丰满' };
+      return map[t] || t || '-';
+    },
+    // 年龄段文案转中文
+    ageRangeLabel(a) {
+      const map = { '18-25': '18-25岁', '26-35': '26-35岁', '36-45': '36-45岁', '46+': '46岁以上' };
+      return map[a] || a || '-';
+    },
+    onShopSearchFocus() {
+      this.shopDropdownFocus = true;
+      if (!this.shopListLoaded) this.loadShopList();
+    },
+    // 失焦时延迟隐藏下拉（允许点击下拉项）
+    onShopSearchBlur() {
+      setTimeout(() => { this.shopDropdownFocus = false; }, 200);
+    },
+    isShopSelected(id) {
+      return this.selectedShops.some(s => s.id === id);
+    },
+    toggleShop(shop) {
+      if (this.isShopSelected(shop.id)) {
+        // 已选则取消选择（支持取消已选）
+        this.removeShop(shop.id);
+        return;
+      }
+      this.selectedShops.push({ id: shop.id, shopName: shop.shopName });
+      // 不清空搜索关键字，允许用户继续搜索选择下一家
+    },
+    removeShop(id) {
+      const idx = this.selectedShops.findIndex(s => s.id === id);
+      if (idx >= 0) this.selectedShops.splice(idx, 1);
+    },
+    // 全选所有店铺（等同于全平台）
+    selectAllShops() {
+      this.selectedShops = this.shopList.map(s => ({ id: s.id, shopName: s.shopName }));
+    },
+    // 清空所有已选店铺
+    clearAllShops() {
+      this.selectedShops = [];
+    },
+    onRecharged(res) {
+      this.loadCredits();
+    },
+    switchPhotoMode(mode) {
+      this.photoMode = mode;
+      if (mode === 'custom' && !this.userPhotoSessionKey) {
+        // 触发文件选择
+        this.$nextTick(() => this.triggerFileInput());
+      }
+    },
+    // 切换搭配模式（二选一互斥）
+    switchOutfitMode(mode) {
+      this.outfitMode = mode;
+    },
+    triggerFileInput() {
+      if (this.userPhotoUrl) return;
+      this.$refs.fileInput.click();
+    },
+    onFileChange(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) {
+        util.toast('图片不能超过 10MB', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const base64 = ev.target.result;
+        this.userPhotoUrl = base64;
+        this.uploadPhoto(base64);
+      };
+      reader.readAsDataURL(file);
+      // P2 修复：清空 input value，允许重复选择同一文件
+      e.target.value = '';
+    },
+    uploadPhoto(base64) {
+      axios.post('/v1/outfit/photo', { photo: base64 }).then(res => {
+        this.userPhotoSessionKey = res.photoSessionKey;
+        util.savePhotoSession(res.photoSessionKey);
+        util.toast('照片上传成功', 'success');
+      }).catch(err => {
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '上传失败';
+        util.toast(msg, 'error');
+        this.userPhotoUrl = '';
+      });
+    },
+    clearPhoto() {
+      axios.delete('/v1/outfit/photo').then(() => {
+        this.userPhotoUrl = '';
+        this.userPhotoSessionKey = '';
+        util.clearPhotoSession();
+        util.toast('照片已清除', 'info');
+      }).catch(() => {
+        this.userPhotoUrl = '';
+        this.userPhotoSessionKey = '';
+        util.clearPhotoSession();
+      });
+    },
+    toggleChip(field, val) {
+      const arr = this[field];
+      const idx = arr.indexOf(val);
+      if (idx >= 0) arr.splice(idx, 1);
+      else arr.push(val);
+    },
+    async openPicker(type) {
+      this.picker.type = type;
+      this.picker.show = true;
+      this.picker.loading = true;
+      this.picker.items = [];
+      // 还原已选项作为初始选中
+      const key = type + 'ItemIds';
+      this.picker.selected = [...this[key]];
+      // 还原 selectedDetail（从全局 pickedDetailMap 中过滤出当前 source 的项）
+      this.picker.selectedDetail = this._buildSelectedDetail(type, this.picker.selected);
+
+      // search 类型不预加载列表（等用户搜索）
+      if (type === 'search') {
+        this.picker.searchKeyword = '';
+        // 搜索品类由用户在下拉/关键字中选择，不从主页面品类组合带入
+        // （避免锁定到单一品类，导致"选完上衣后再搜下装"时搜不到下装商品）
+        this.picker.searchCategory = '';
+        this.picker.searchShopUserId = '';
+        this.picker.searchPageNo = 1;
+        this.picker.searchTotal = 0;
+        this.picker.searchHasMore = false;
+        // 确保店铺列表已加载（按店铺筛选单品）
+        this.loadShopList();
+        this.picker.loading = false;
+        return;
+      }
+
+      try {
+        let items = [];
+        if (type === 'wardrobe') {
+          // v3.1 §9.2：仅 itemType=1（单品）支持 AI 搭配召回，过滤 2/3/4
+          const list = await axios.get('/wardrobe');
+          items = (list || []).filter(w => w.itemType === 1).map(w => ({
+            id: w.id,          // user_wardrobe.id（后端要求传这个，不是 itemId）
+            itemId: w.itemId,
+            name: w.category ? (w.category + '商品') : '衣橱商品',
+            image: w.photoUrl,
+            category: w.category,
+            color: w.color,
+            itemType: w.itemType,
+          }));
+        } else if (type === 'cart') {
+          const cart = await axios.get('/carts');
+          const cartItems = (cart.items || cart || []).map(c => ({
+            id: c.itemId,
+            itemId: c.itemId,
+            name: c.name || c.itemName || '购物车商品',
+            image: c.image,
+            category: c.category,
+            price: c.price,
+          }));
+          // P0-2 修复：CartVO 不含 category 字段，批量查询 item 补全
+          const itemIds = cartItems.map(c => c.itemId).filter(Boolean);
+          if (itemIds.length > 0) {
+            const itemResp = await axios.get('/items', { params: { ids: itemIds.join(',') } });
+            const itemMap = {};
+            (itemResp || []).forEach(i => { itemMap[i.id] = i; });
+            cartItems.forEach(c => {
+              if (!c.category && itemMap[c.itemId]) {
+                c.category = itemMap[c.itemId].category;
+              }
+            });
+          }
+          items = cartItems;
+        } else if (type === 'order') {
+          // P0-1 修复：/order/list 不存在，改为 /orders/user/page
+          const orderResp = await axios.get('/orders/user/page', { params: { page: 1, size: 100 } });
+          const orders = orderResp.records || orderResp.list || orderResp || [];
+          items = [];
+          (orders || []).forEach(o => {
+            (o.orderDetails || []).forEach(d => {
+              items.push({
+                id: d.itemId,
+                itemId: d.itemId,
+                name: d.name || '已购商品',
+                image: d.image,
+                category: d.category,
+                price: d.price,
+              });
+            });
+          });
+          // P0-2 修复：OrderDetailVO 不含 category 字段，批量查询 item 补全
+          const orderItemIds = items.map(it => it.itemId).filter(Boolean);
+          if (orderItemIds.length > 0) {
+            const itemResp = await axios.get('/items', { params: { ids: orderItemIds.join(',') } });
+            const itemMap = {};
+            (itemResp || []).forEach(i => { itemMap[i.id] = i; });
+            items.forEach(it => {
+              if (!it.category && itemMap[it.itemId]) {
+                it.category = itemMap[it.itemId].category;
+              }
+            });
+          }
+        }
+        // 仅展示穿搭类目商品（过滤非穿搭类目，避免用户误选）
+        items = items.filter(it => it.category && this.outfitCategoryOptions.indexOf(it.category) >= 0);
+        this.picker.items = items;
+      } catch (e) {
+        util.toast('加载失败', 'error');
+      } finally {
+        this.picker.loading = false;
+      }
+    },
+    // 搜索穿搭类目商品（调 /search/list 接口 + 前端过滤穿搭类目）
+    // append=true 时加载下一页并追加（分页加载更多）
+    async searchPickItems(append) {
+      let kw = (this.picker.searchKeyword || '').trim();
+      // 关键字是品类名时自动识别为品类过滤（优先于下拉选择）：
+      // 如用户已选一件上衣，再输入"下装"搜索，直接过滤出下装商品，可继续添加
+      if (this.outfitCategoryOptions.indexOf(kw) >= 0) {
+        this.picker.searchCategory = kw;
+        kw = '';
+      }
+      if (!kw && !this.picker.searchCategory) {
+        util.toast('请输入关键字或选择品类', 'warning');
+        return;
+      }
+      if (!append) {
+        // 首次搜索：重置分页
+        this.picker.searchPageNo = 1;
+        this.picker.searchTotal = 0;
+        this.picker.searchHasMore = false;
+        this.picker.items = [];
+      } else {
+        this.picker.searchPageNo += 1;
+      }
+      this.picker.loading = true;
+      try {
+        const params = {
+          key: kw,
+          pageNo: this.picker.searchPageNo,
+          pageSize: this.picker.searchPageSize,
+        };
+        if (this.picker.searchCategory) {
+          // 后端 search/list 的 category 过滤参数（中文品类名）
+          params.category = this.picker.searchCategory;
+        }
+        // 按店铺搜索单品：传商家 userId（对应 item.creater），后端 /search/list 已支持
+        if (this.picker.searchShopUserId) {
+          params.creater = this.picker.searchShopUserId;
+        }
+        const resp = await axios.get('/search/list', { params });
+        const list = resp.list || resp.items || [];
+        // 双重过滤：仅展示穿搭类目商品（防止后端 category 过滤不严）
+        let outfitList = list.filter(it => it.category && this.outfitCategoryOptions.indexOf(it.category) >= 0);
+        // 三重过滤：已选搜索品类时强制按所选品类过滤（防止后端/缓存返回其他品类，如选"全身套装"仍显示上衣）
+        if (this.picker.searchCategory) {
+          outfitList = outfitList.filter(it => it.category === this.picker.searchCategory);
+        }
+        const items = outfitList.map(it => ({
+            id: it.id,
+            itemId: it.id,
+            name: it.name || '搜索商品',
+            image: it.image,
+            category: it.category,
+            price: it.price,
+            brand: it.brand,
+          }));
+        if (append) {
+          // 追加下一页（按 id 去重，防止跨页重复）
+          const seen = {};
+          this.picker.items.forEach(it => { seen[it.id] = true; });
+          items.forEach(it => { if (!seen[it.id]) { this.picker.items.push(it); seen[it.id] = true; } });
+        } else {
+          this.picker.items = items;
+        }
+        // 分页信息：total/pages 来自后端 PageDTO
+        this.picker.searchTotal = Number(resp.total || this.picker.items.length);
+        const pages = Number(resp.pages || 1);
+        this.picker.searchHasMore = this.picker.searchPageNo < pages;
+        if (items.length === 0 && !append) {
+          util.toast('未找到穿搭类目商品，请尝试其他关键字', 'info');
+        }
+      } catch (e) {
+        if (append) this.picker.searchPageNo -= 1; // 失败回滚页码
+        util.toast('搜索失败', 'error');
+      } finally {
+        this.picker.loading = false;
+      }
+    },
+    // 从全局 pickedDetailMap 中构建当前 picker 的 selectedDetail
+    _buildSelectedDetail(source, idList) {
+      if (!idList || idList.length === 0) return [];
+      return idList.map(id => {
+        const key = source + '_' + id;
+        return this.pickedDetailMap[key];
+      }).filter(Boolean);
+    },
+    isPicked(it) {
+      return this.picker.selected.indexOf(it.id) >= 0;
+    },
+    // 判断商品品类是否被其他源选中（用于 modal 警告提示）
+    isCategoryPickedByOther(it) {
+      if (!it.category) return false;
+      const currentSource = this.picker.type;
+      for (const key of Object.keys(this.pickedDetailMap)) {
+        const d = this.pickedDetailMap[key];
+        if (d && d.source !== currentSource && d.category === it.category) {
+          return true;
+        }
+      }
+      return false;
+    },
+    // 查找同品类商品在 picker.selected 中的位置（用于 picker 内同品类互斥）
+    _findSameCategoryInSelected(it) {
+      if (!it.category) return -1;
+      for (let i = 0; i < this.picker.selectedDetail.length; i++) {
+        const d = this.picker.selectedDetail[i];
+        if (d && d.category === it.category && d.id !== it.id) {
+          return i;
+        }
+      }
+      return -1;
+    },
+    // 全身套装与上衣/下装互斥校验（同时检查 picker.selectedDetail 和跨源 pickedDetailMap）
+    // 注意：上衣与下装可以同时选（如 上衣+下装+鞋），只有全身套装才与上衣/下装互斥
+    _isMutuallyExclusiveCategory(newCat, existingCat) {
+      // 全身套装与上衣/下装互斥（双向）
+      if (newCat === '全身套装') {
+        return existingCat === '上衣' || existingCat === '下装';
+      }
+      if (existingCat === '全身套装') {
+        return newCat === '上衣' || newCat === '下装';
+      }
+      return false;
+    },
+    _findMutexCategoryInSelected(it) {
+      if (!it.category) return -1;
+      // picker 内
+      for (let i = 0; i < this.picker.selectedDetail.length; i++) {
+        const d = this.picker.selectedDetail[i];
+        if (d && this._isMutuallyExclusiveCategory(it.category, d.category)) {
+          return i;
+        }
+      }
+      return -1;
+    },
+    _findMutexCategoryInOtherSources(it) {
+      if (!it.category) return null;
+      const currentSource = this.picker.type;
+      for (const key of Object.keys(this.pickedDetailMap)) {
+        const d = this.pickedDetailMap[key];
+        if (d && d.source !== currentSource && this._isMutuallyExclusiveCategory(it.category, d.category)) {
+          return { key, detail: d };
+        }
+      }
+      return null;
+    },
+    togglePick(it) {
+      const idx = this.picker.selected.indexOf(it.id);
+      if (idx >= 0) {
+        // 取消选择
+        this.picker.selected.splice(idx, 1);
+        this.picker.selectedDetail = this.picker.selectedDetail.filter(d => d.id !== it.id);
+        return;
+      }
+      // 选择新商品：先做约束校验
+      // 1. 上限校验（pickedCount 是已确认的四类合计，picker.selected 是当前 picker 内未确认的）
+      const totalAfter = this.pickedCount - this._currentSourceCount() + this.picker.selected.length + 1;
+      if (totalAfter > this.MAX_PICKED) {
+        util.toast('已达上限 ' + this.MAX_PICKED + ' 件，请先取消其他单品', 'warning');
+        return;
+      }
+      // 2. 全身套装与上衣/下装互斥校验（picker 内）
+      const mutexInSelected = this._findMutexCategoryInSelected(it);
+      if (mutexInSelected >= 0) {
+        const old = this.picker.selectedDetail[mutexInSelected];
+        util.toast('全身套装与上衣/下装互斥，已替换原有 [' + old.category + ']', 'info');
+        this._removeFromPickerSelected(mutexInSelected);
+      }
+      // 3. 全身套装与上衣/下装互斥校验（跨源）
+      const mutexOther = this._findMutexCategoryInOtherSources(it);
+      if (mutexOther) {
+        const d = mutexOther.detail;
+        util.toast('全身套装与上衣/下装互斥，将自动替换其他入口的 [' + d.category + ']', 'warning');
+        this._removeFromOtherSource(d.source, d.id);
+      }
+      // 4. 同品类互斥校验（picker 内）：自动替换
+      const sameCatIdx = this._findSameCategoryInSelected(it);
+      if (sameCatIdx >= 0) {
+        const old = this.picker.selectedDetail[sameCatIdx];
+        util.toast('已替换原有 [' + old.category + '] 商品', 'info');
+        this._removeFromPickerSelected(sameCatIdx);
+      }
+      // 5. 同品类互斥校验（跨源）：confirmPicker 时统一处理，这里仅提示
+      // 加入到 selected
+      this.picker.selected.push(it.id);
+      this.picker.selectedDetail.push({
+        id: it.id,
+        itemId: it.itemId || it.id,
+        category: it.category,
+        name: it.name,
+        image: it.image,
+        source: this.picker.type,
+      });
+    },
+    _currentSourceCount() {
+      const key = this.picker.type + 'ItemIds';
+      return this[key] ? this[key].length : 0;
+    },
+    _removeFromPickerSelected(idx) {
+      if (idx < 0 || idx >= this.picker.selected.length) return;
+      this.picker.selected.splice(idx, 1);
+      this.picker.selectedDetail.splice(idx, 1);
+    },
+    // 跨源移除（picker 内未确认但其他源已确认的商品）
+    _removeFromOtherSource(source, id) {
+      const key = source + 'ItemIds';
+      if (!this[key]) return;
+      const idx = this[key].indexOf(id);
+      if (idx >= 0) {
+        this[key].splice(idx, 1);
+      }
+      // 同步移除全局 detail
+      const detailKey = source + '_' + id;
+      this.$delete(this.pickedDetailMap, detailKey);
+    },
+    confirmPicker() {
+      const type = this.picker.type;
+      const key = type + 'ItemIds';
+      // 1. 跨源同品类冲突：检测 picker 新选的商品是否与其他源已选商品同品类
+      //    若冲突，自动移除其他源中的旧商品
+      const removedConflicts = [];
+      for (const d of this.picker.selectedDetail) {
+        for (const otherKey of Object.keys(this.pickedDetailMap)) {
+          const other = this.pickedDetailMap[otherKey];
+          if (other && other.source !== type && other.category === d.category && other.id !== d.id) {
+            this._removeFromOtherSource(other.source, other.id);
+            removedConflicts.push({
+              category: other.category,
+              source: other.source,
+              oldName: other.name,
+              newName: d.name,
+            });
+          }
+        }
+      }
+      if (removedConflicts.length > 0) {
+        const msgs = removedConflicts.map(c =>
+          '[' + c.category + '] 已从' + this._sourceLabel(c.source) + '替换为' + c.newName);
+        util.toast(msgs.join('；'), 'info');
+      }
+      // 2. 写入对应 ItemIds 数组
+      this[key] = [...this.picker.selected];
+      // 3. 同步 pickedDetailMap：先移除当前 source 旧项，再加入新项
+      for (const k of Object.keys(this.pickedDetailMap)) {
+        if (this.pickedDetailMap[k] && this.pickedDetailMap[k].source === type) {
+          this.$delete(this.pickedDetailMap, k);
+        }
+      }
+      for (const d of this.picker.selectedDetail) {
+        const detailKey = type + '_' + d.id;
+        this.$set(this.pickedDetailMap, detailKey, d);
+      }
+      this.picker.show = false;
+    },
+    _sourceLabel(source) {
+      const map = { wardrobe: '衣橱', cart: '购物车', order: '订单', search: '搜索' };
+      return map[source] || source;
+    },
+    // 主页面取消已选单品（从对应来源 ItemIds 数组 + 全局 pickedDetailMap 移除）
+    removePicked(key) {
+      const d = this.pickedDetailMap[key];
+      if (!d) return;
+      // 1. 从对应来源 ItemIds 数组移除
+      const idArr = this[d.source + 'ItemIds'];
+      if (idArr) {
+        const idx = idArr.indexOf(d.id);
+        if (idx >= 0) idArr.splice(idx, 1);
+      }
+      // 2. 若当前 picker 正打开且属于同一来源，同步移除 picker 内的选中态
+      if (this.picker.show && this.picker.type === d.source) {
+        const pIdx = this.picker.selected.indexOf(d.id);
+        if (pIdx >= 0) {
+          this.picker.selected.splice(pIdx, 1);
+          this.picker.selectedDetail = this.picker.selectedDetail.filter(x => x.id !== d.id);
+        }
+      }
+      // 3. 移除全局明细（Vue2 需 $delete 触发响应式更新，delete 不会刷新 UI）
+      this.$delete(this.pickedDetailMap, key);
+    },
+    async submit() {
+      if (!this.canSubmit) {
+        const msg = this.outfitMode === 'picked'
+          ? '请至少挑选 1 件单品'
+          : '请至少选择一种风格或填写场景描述';
+        util.toast(msg, 'warning');
+        return;
+      }
+      const isPicked = this.outfitMode === 'picked';
+      const requiredCredits = isPicked ? 5 : 17;
+      if (this.creditsBalance < requiredCredits) {
+        this.showRechargeDialog = true;
+        return;
+      }
+      // 性别与服装匹配 + photoMode 联动（2026-07-31 改造）：
+      // - 真人照片模式（custom）：必填身体信息档案（含性别），未登记则阻断提交
+      // - 系统模特模式（default）：体验版，不强制身体信息，userBodyProfileId 传 null，
+      //   后端节点1 用 systemModelGender 进行 Qdrant 性别过滤，尺码推荐延后到下单/加购阶段
+      if (this.photoMode === 'custom') {
+        if (!this.bodyProfileLoaded) {
+          util.toast('身体信息档案加载中，请稍候', 'warning');
+          return;
+        }
+        if (!this.bodyProfile) {
+          util.toast('请先在「我的衣橱」登记身体信息档案（含性别）后再使用 AI 搭配', 'error');
+          setTimeout(() => { location.href = '/wardrobe.html'; }, 1500);
+          return;
+        }
+      }
+      // 性别一致性校验：选定系统模特时，模特性别应与档案性别一致（避免冲突）
+      // 系统模特模式下若用户未登记档案则跳过此校验（体验版允许无档案）
+      if (this.selectedSystemModel && this.bodyProfile
+          && this.selectedSystemModel.gender !== this.bodyProfile.gender) {
+        util.toast('选定的系统模特性别（' + this.genderLabel(this.selectedSystemModel.gender)
+                   + '）与身体档案性别（' + this.genderLabel(this.bodyProfile.gender)
+                   + '）不一致，请重新选择', 'error');
+        return;
+      }
+      this.submitting = true;
+      try {
+        // 天气服务：提交前校验城市缓存，过期则静默刷新定位
+        const { city: userCity, country: userCountry } = await util.ensureCityFresh();
+        // 双模式提交：用户选定模式不传风格/品类/店铺字段；
+        //             风格驱动模式不传衣橱/购物车/订单字段
+        // 后端 is_user_picked = bool(wardrobeItemIds or cartItemIds or orderItemIds or searchItemIds) 自动路由
+        const body = {
+          styleTags: isPicked ? null : (this.styleTags.length ? this.styleTags : null),
+          color: isPicked ? null : (this.color.length ? this.color : null),
+          categories: isPicked ? null : (this.categories.length ? this.categories : null),
+          shopIds: isPicked
+            ? null
+            : (this.shopMode === 'specific' && this.selectedShops.length
+                ? this.selectedShops.map(s => s.id)
+                : null),
+          sceneDesc: this.sceneDesc.trim() || null,
+          note: this.note.trim() || null,
+          photoSessionKey: this.photoMode === 'custom' ? this.userPhotoSessionKey : null,
+          wardrobeItemIds: isPicked ? (this.wardrobeItemIds.length ? this.wardrobeItemIds : null) : null,
+          cartItemIds: isPicked ? (this.cartItemIds.length ? this.cartItemIds : null) : null,
+          orderItemIds: isPicked ? (this.orderItemIds.length ? this.orderItemIds : null) : null,
+          searchItemIds: isPicked ? (this.searchItemIds.length ? this.searchItemIds : null) : null,
+          // 性别与服装匹配（2026-07-27 新增）：传递身体档案 + 系统模特信息
+          userBodyProfileId: this.bodyProfile ? this.bodyProfile.id : null,
+          systemModelId: (this.photoMode === 'default' && this.selectedSystemModel)
+                           ? this.selectedSystemModel.id : null,
+          systemModelImageUrl: (this.photoMode === 'default' && this.selectedSystemModel)
+                                ? this.selectedSystemModel.imageUrl : null,
+          systemModelGender: (this.photoMode === 'default' && this.selectedSystemModel)
+                              ? this.selectedSystemModel.gender : null,
+          // 天气服务：前端 IP 定位获取用户城市，后端调 uapis.cn 查天气
+          userCity: userCity,
+          userCountry: userCountry,
+        };
+        const res = await axios.post('/v1/outfit/agent/recommend', body, { timeout: 120000 });
+        // v3.1 §11.3：提交成功后清除草稿
+        this.clearDraft();
+        // 一阶段直出：风格驱动模式也直接进入 vton 阶段（推荐+VTON 合并）
+        const stage = 'vton';
+        location.href = '/outfit-result.html?taskId=' + res.taskId + '&stage=' + stage;
+      } catch (err) {
+        const status = err.response && err.response.status;
+        const data = err.response && err.response.data || {};
+        if (status === 403) {
+          this.showRechargeDialog = true;
+        } else if (status === 429) {
+          // 并发限流：全局拦截器已弹窗，此处不重复弹
+          console.warn('[429] recommend 并发限流: ' + (data.detail || ''));
+        } else if (status === 400) {
+          util.toast(data.detail || data.msg || '请至少填一项偏好', 'error');
+        } else if (!err.response || status >= 500) {
+          // v3.1 §10.2：网络错误或 5xx 视为 AI 服务故障，置灰按钮 + 显示重试
+          this.serviceAvailable = false;
+          util.toast('AI 服务暂不可用，请稍后重试', 'error');
+        } else {
+          util.toast(data.msg || data.detail || '提交失败', 'error');
+        }
+      } finally {
+        this.submitting = false;
+      }
+    },
+    // v3.1 §10.2：服务故障后用户主动重试
+    retryService() {
+      this.serviceAvailable = true;
+      this.submit();
+    },
+  },
+});
+</script>
+</body>
+</html>

@@ -364,7 +364,8 @@ Vue.component('coupon-list-page', {
             }).catch(() => {});
         },
         loadAllItems() {
-            ZM.http.get('/items/admin/page', { params: { page: 1, size: 1000 } }).then(res => {
+            // onlyMine=true 强制只查当前商家自己的商品（指定可优惠商品只能选本店铺商品）
+            ZM.http.get('/items/admin/page', { params: { page: 1, size: 1000, onlyMine: true } }).then(res => {
                 let data = res;
                 if (res && res.data && res.data.list) data = res.data;
                 this.allItemList = data && data.list ? data.list : (Array.isArray(data) ? data : []);

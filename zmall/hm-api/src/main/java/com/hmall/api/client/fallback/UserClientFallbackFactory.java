@@ -1,6 +1,7 @@
 package com.hmall.api.client.fallback;
 
 import com.hmall.api.client.UserClient;
+import com.hmall.api.dto.AddressDTO;
 import com.hmall.api.dto.DeductMoneyDTO;
 import com.hmall.common.exception.BizIllegalException;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,19 @@ public class UserClientFallbackFactory implements FallbackFactory<UserClient> {
             public void refundMoney(Long userId, Integer amount) {
                 log.error("远程调用UserClient#refundMoney方法出现异常，userId={}，amount={}", userId, amount, cause);
                 throw new BizIllegalException("用户服务不可用，退款失败", cause);
+            }
+
+            @Override
+            public AddressDTO findAddressById(Long id) {
+                log.error("远程调用UserClient#findAddressById方法出现异常，id={}", id, cause);
+                return null;
+            }
+
+            @Override
+            public String queryUserGender(Long id) {
+                // 埋点辅助查询，失败时返回 null 兜底，不阻塞主业务流程
+                log.warn("远程调用UserClient#queryUserGender方法出现异常，id={}，userGender 返回 null 兜底", id, cause);
+                return null;
             }
         };
     }

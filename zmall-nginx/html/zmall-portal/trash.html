@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>回收站 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <style>
+    .trash-page { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .trash-page h2 { font-size: 22px; margin-bottom: 8px; color: #333; }
+    .trash-page .subtitle { font-size: 13px; color: #999; margin-bottom: 20px; }
+    .order-card { background: #fff; border: 1px solid #eee; border-radius: 8px; margin-bottom: 16px; overflow: hidden; opacity: 0.85; }
+    .order-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #fafafa; border-bottom: 1px solid #eee; font-size: 13px; color: #999; }
+    .order-header .order-no { color: #333; font-weight: bold; }
+    .order-header .status { color: #999; font-weight: bold; font-size: 14px; }
+    .order-body { padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
+    .order-body .item-info { flex: 1; }
+    .order-body .item-info .name { font-size: 14px; color: #333; margin-bottom: 4px; }
+    .order-body .item-info .count { font-size: 12px; color: #999; }
+    .order-body .price { font-size: 18px; color: #999; font-weight: bold; min-width: 100px; text-align: right; }
+    .order-body .price .yen { font-size: 13px; }
+    .order-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px; border-top: 1px solid #f0f0f0; }
+    .order-footer .btn { padding: 6px 18px; border-radius: 4px; font-size: 13px; cursor: pointer; border: 1px solid #ddd; background: #fff; color: #666; }
+    .order-footer .btn:hover { border-color: #e54346; color: #e54346; }
+    .order-footer .btn-primary { background: #e54346; color: #fff; border-color: #e54346; }
+    .order-footer .btn-primary:hover { background: #c73032; }
+    .no-data { text-align: center; color: #999; padding: 60px; font-size: 16px; }
+    .pagination { display: flex; justify-content: center; gap: 6px; margin-top: 20px; }
+    .pagination .page-btn { padding: 6px 14px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; cursor: pointer; background: #fff; color: #666; }
+    .pagination .page-btn.active { background: #e54346; color: #fff; border-color: #e54346; }
+    .pagination .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .back-link { display: inline-block; margin-bottom: 16px; color: #e54346; text-decoration: none; font-size: 14px; }
+    .back-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="trash-page">
+    <a href="/order.html" class="back-link">← 返回订单列表</a>
+    <h2>回收站</h2>
+    <div class="subtitle">已删除的订单会在此显示，您可恢复或彻底清除</div>
+
+    <div v-if="orders.length === 0" class="no-data">回收站为空</div>
+    <div v-for="order in orders" :key="order.id" class="order-card">
+      <div class="order-header">
+        <span class="order-no">订单号：{{order.id}} &nbsp;&nbsp; {{order.createTime}}</span>
+        <span class="status">{{order.statusText}}</span>
+      </div>
+      <div class="order-body">
+        <div class="item-info">
+          <div class="name">{{order.itemName || '商品订单'}}</div>
+          <div class="count">共 {{order.itemCount || 1}} 件商品 &nbsp; {{order.orderType === 2 ? '优惠券订单' : order.orderType === 3 ? '秒杀订单' : ''}}</div>
+        </div>
+        <div class="price"><span class="yen">￥</span>{{formatPrice(order.totalFee)}}</div>
+      </div>
+      <div class="order-footer">
+        <button class="btn btn-primary" @click="restoreOrder(order.id)">恢复订单</button>
+        <button class="btn" @click="viewItem(order)">查看商品</button>
+      </div>
+    </div>
+
+    <div class="pagination" v-if="totalPages > 1">
+      <span style="font-size:13px;color:#666;margin-right:8px;">共 {{total}} 条</span>
+      <button class="page-btn" :disabled="page<=1" @click="page--;loadOrders()">上一页</button>
+      <button class="page-btn" :class="{active: p===page}" v-for="p in pageNumbers" :key="p" @click="page=p;loadOrders()">{{p}}</button>
+      <button class="page-btn" :disabled="page>=totalPages" @click="page++;loadOrders()">下一页</button>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    orders: [],
+    page: 1,
+    size: 10,
+    total: 0,
+    totalPages: 0
+  },
+  computed: {
+    pageNumbers() {
+      const pages = [];
+      const start = Math.max(1, this.page - 2);
+      const end = Math.min(this.totalPages, this.page + 2);
+      for (let i = start; i <= end; i++) pages.push(i);
+      return pages;
+    }
+  },
+  created() {
+    if (!util.isLogin()) { location.href = '/login.html'; return; }
+    this.loadOrders();
+  },
+  methods: {
+    loadOrders() {
+      axios.get('/orders/user/trash', { params: { page: this.page, size: this.size } }).then(res => {
+        this.orders = res.list || [];
+        this.total = res.total || 0;
+        this.totalPages = res.pages || 1;
+      }).catch(() => {});
+    },
+    restoreOrder(id) {
+      if (!confirm('确认恢复该订单？恢复后将重新出现在订单列表中。')) return;
+      axios.put('/orders/' + id + '/restore').then(() => {
+        alert('恢复成功');
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '恢复失败');
+      });
+    },
+    viewItem(order) {
+      if (order.orderType === 2) {
+        alert('商品已无，暂无法查看详情哦~');
+        return;
+      }
+      axios.get('/orders/' + order.id).then(res => {
+        if (!res || !res.orderDetails || res.orderDetails.length === 0) {
+          alert('商品已无，暂无法查看详情哦~');
+          return;
+        }
+        const itemId = res.orderDetails[0].itemId;
+        axios.get('/items/' + itemId).then(itemRes => {
+          if (!itemRes || !itemRes.id || itemRes.status === 3) {
+            alert('商品已无，暂无法查看详情哦~');
+          } else {
+            location.href = '/item-detail.html?id=' + itemId;
+          }
+        }).catch(() => {
+          alert('商品已无，暂无法查看详情哦~');
+        });
+      }).catch(() => {
+        alert('商品已无，暂无法查看详情哦~');
+      });
+    },
+    formatPrice(val) { return util.formatPrice(val); }
+  }
+});
+</script>
+</body>
+</html>

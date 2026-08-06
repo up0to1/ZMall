@@ -3,10 +3,13 @@ package com.hmall.trade.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmall.common.domain.PageDTO;
+import com.hmall.api.client.ItemClient;
 import com.hmall.api.dto.CouponDTO;
 import com.hmall.api.dto.CouponStatsDTO;
+import com.hmall.api.dto.ItemDTO;
 import com.hmall.api.vo.CouponVO;
 import com.hmall.common.exception.BadRequestException;
+import com.hmall.common.exception.BizIllegalException;
 import com.hmall.common.config.RedisConstants;
 import com.hmall.common.config.RedisIdWorker;
 import com.hmall.common.constants.MqConstants;
@@ -47,6 +50,7 @@ public class CouponServiceImpl implements ICouponService {
     private final RedisIdWorker redisIdWorker;
     private final StringRedisTemplate stringRedisTemplate;
     private final RabbitMqHelper rabbitMqHelper;
+    private final ItemClient itemClient;
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     // ========== 后台管理 ==========
@@ -55,8 +59,11 @@ public class CouponServiceImpl implements ICouponService {
     @Transactional(rollbackFor = Exception.class)
     public void createCoupon(CouponDTO dto) {
         validateCoupon(dto);
+        // 校验绑定商品归属：指定商品券只能绑定当前商家的商品
+        validateItemOwnership(dto);
         Coupon coupon = buildCoupon(dto);
         coupon.setStatus(1); // 默认上架
+        coupon.setCreater(UserContext.getUser()); // 记录创建者（商家ID）
         couponMapper.insert(coupon);
         // 保存优惠券-商品关联
         saveCouponItems(coupon.getId(), dto);
@@ -66,13 +73,18 @@ public class CouponServiceImpl implements ICouponService {
         }
         // 发送自动下架延迟消息
         scheduleAutoOffShelf(coupon);
-        log.info("优惠券创建成功: couponId={}, name={}, couponType={}", coupon.getId(), coupon.getName(), coupon.getCouponType());
+        log.info("优惠券创建成功: couponId={}, name={}, couponType={}, creater={}",
+                coupon.getId(), coupon.getName(), coupon.getCouponType(), coupon.getCreater());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateCoupon(Long id, CouponDTO dto) {
         validateCoupon(dto);
+        // 所有权校验：只能更新自己创建的优惠券
+        checkCouponOwnership(id);
+        // 校验绑定商品归属：指定商品券只能绑定当前商家的商品
+        validateItemOwnership(dto);
         Coupon existing = couponMapper.selectById(id);
         if (existing == null) {
             throw new BadRequestException("优惠券不存在");
@@ -80,6 +92,7 @@ public class CouponServiceImpl implements ICouponService {
         Coupon coupon = buildCoupon(dto);
         coupon.setId(id);
         coupon.setStatus(existing.getStatus()); // 保留原状态
+        coupon.setCreater(existing.getCreater()); // 保留原创建者
         couponMapper.updateById(coupon);
         // 更新优惠券-商品关联：先删后增
         couponItemMapper.delete(new LambdaQueryWrapper<CouponItem>().eq(CouponItem::getCouponId, id));
@@ -105,6 +118,8 @@ public class CouponServiceImpl implements ICouponService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteCoupon(Long id) {
+        // 所有权校验：只能删除自己创建的优惠券
+        checkCouponOwnership(id);
         Coupon coupon = couponMapper.selectById(id);
         if (coupon == null) {
             throw new BadRequestException("优惠券不存在");
@@ -128,7 +143,10 @@ public class CouponServiceImpl implements ICouponService {
 
     @Override
     public PageDTO<CouponVO> queryCouponPage(int page, int size, Integer status, Integer couponType) {
+        // 按商家过滤：只能看到自己创建的优惠券
+        Long merchantId = UserContext.getUser();
         LambdaQueryWrapper<Coupon> wrapper = new LambdaQueryWrapper<Coupon>()
+                .eq(merchantId != null, Coupon::getCreater, merchantId)
                 .eq(status != null, Coupon::getStatus, status)
                 .eq(couponType != null, Coupon::getCouponType, couponType)
                 .orderByDesc(Coupon::getCreateTime);
@@ -141,6 +159,8 @@ public class CouponServiceImpl implements ICouponService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateCouponStatus(Long id, Integer status) {
+        // 所有权校验：只能上下架自己创建的优惠券
+        checkCouponOwnership(id);
         Coupon coupon = couponMapper.selectById(id);
         if (coupon == null) {
             throw new BadRequestException("优惠券不存在");
@@ -157,6 +177,8 @@ public class CouponServiceImpl implements ICouponService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateCouponType(Long id, Integer couponType) {
+        // 所有权校验：只能变更自己创建的优惠券类别
+        checkCouponOwnership(id);
         Coupon coupon = couponMapper.selectById(id);
         if (coupon == null) {
             throw new BadRequestException("优惠券不存在");
@@ -187,6 +209,10 @@ public class CouponServiceImpl implements ICouponService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void setSeckillCoupon(Long id, CouponDTO dto) {
+        // 所有权校验：只能设置自己创建的优惠券为秒杀
+        checkCouponOwnership(id);
+        // 校验绑定商品归属：秒杀券指定商品只能绑定当前商家的商品
+        validateItemOwnership(dto);
         Coupon coupon = couponMapper.selectById(id);
         if (coupon == null) {
             throw new BadRequestException("优惠券不存在");
@@ -224,6 +250,8 @@ public class CouponServiceImpl implements ICouponService {
 
     @Override
     public CouponVO getCouponDetail(Long id) {
+        // 所有权校验：只能查看自己创建的优惠券详情
+        checkCouponOwnership(id);
         Coupon coupon = couponMapper.selectById(id);
         if (coupon == null) {
             return null;
@@ -233,11 +261,14 @@ public class CouponServiceImpl implements ICouponService {
 
     @Override
     public CouponStatsDTO getCouponStats() {
+        // 按商家过滤：只统计当前商家创建的优惠券
+        Long merchantId = UserContext.getUser();
         CouponStatsDTO stats = new CouponStatsDTO();
         stats.setTotalIssued(0);
         stats.setTotalReceived(0);
         stats.setTotalUsed(0);
-        couponMapper.selectList(null).forEach(c -> {
+        couponMapper.selectList(new LambdaQueryWrapper<Coupon>()
+                .eq(merchantId != null, Coupon::getCreater, merchantId)).forEach(c -> {
             stats.setTotalIssued(stats.getTotalIssued() + (c.getTotalCount() != null ? c.getTotalCount() : 0));
             stats.setTotalReceived(stats.getTotalReceived() + (c.getReceivedCount() != null ? c.getReceivedCount() : 0));
             stats.setTotalUsed(stats.getTotalUsed() + (c.getUsedCount() != null ? c.getUsedCount() : 0));
@@ -492,6 +523,54 @@ public class CouponServiceImpl implements ICouponService {
     }
 
     // ========== 私有方法 ==========
+
+    /**
+     * 优惠券所有权校验
+     * <p>商家只能 CUD 自己 creater=userId 的优惠券，禁止越权操作他人优惠券。
+     * <p>优惠券不存在时直接放行（交给后续 selectById 自行处理）。
+     */
+    private void checkCouponOwnership(Long couponId) {
+        if (couponId == null) {
+            return;
+        }
+        Coupon coupon = couponMapper.selectById(couponId);
+        if (coupon == null) {
+            return;
+        }
+        Long currentUserId = UserContext.getUser();
+        if (currentUserId == null || !currentUserId.equals(coupon.getCreater())) {
+            throw new BizIllegalException("无权操作他人优惠券");
+        }
+    }
+
+    /**
+     * 校验优惠券绑定商品归属
+     * <p>指定商品券（scopeType=2）只能绑定当前商家自己的商品。
+     * <p>通过 itemClient 远程查询商品 creater 字段校验。
+     */
+    private void validateItemOwnership(CouponDTO dto) {
+        if (dto == null || dto.getScopeType() == null || dto.getScopeType() != 2) {
+            return; // 全品类券无需校验
+        }
+        List<Long> itemIds = dto.getItemIds();
+        if (itemIds == null || itemIds.isEmpty()) {
+            return;
+        }
+        Long currentUserId = UserContext.getUser();
+        if (currentUserId == null) {
+            throw new BizIllegalException("未登录，无法校验商品归属");
+        }
+        // 批量查询商品，校验 creater 字段
+        List<ItemDTO> items = itemClient.queryItemByIds(itemIds);
+        if (items == null || items.size() < itemIds.size()) {
+            throw new BadRequestException("部分商品不存在，无法绑定");
+        }
+        for (ItemDTO item : items) {
+            if (item.getCreater() == null || !item.getCreater().equals(currentUserId)) {
+                throw new BizIllegalException("无权绑定他人商品: itemId=" + item.getId() + ", name=" + item.getName());
+            }
+        }
+    }
 
     /**
      * 保存优惠券-商品关联

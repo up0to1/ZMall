@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import cn.hutool.json.JSONUtil;
 import com.hmall.api.vo.MerchantOrderVO;
 import com.hmall.common.domain.PageDTO;
 import com.hmall.api.client.ItemClient;
@@ -13,9 +14,11 @@ import com.hmall.common.config.RedisConstants;
 import com.hmall.common.constants.MqConstants;
 import com.hmall.common.exception.BadRequestException;
 import com.hmall.common.exception.BizIllegalException;
+import com.hmall.common.utils.CollUtils;
 import com.hmall.common.utils.RabbitMqHelper;
 import com.hmall.common.utils.UserContext;
 import com.hmall.trade.domain.dto.OrderFormDTO;
+import com.hmall.trade.domain.dto.ShipOrderDTO;
 import com.hmall.trade.domain.po.*;
 import com.hmall.trade.mapper.CouponMapper;
 import com.hmall.trade.mapper.OrderMapper;
@@ -24,6 +27,7 @@ import com.hmall.trade.mapper.SeckillItemMapper;
 import com.hmall.trade.mapper.UserCouponMapper;
 import com.hmall.trade.service.ICouponService;
 import com.hmall.trade.service.IOrderDetailService;
+import com.hmall.trade.service.IOrderLogisticsService;
 import com.hmall.trade.service.IOrderService;
 import io.seata.spring.annotation.GlobalTransactional;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +35,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -55,6 +61,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     private final SeckillItemMapper seckillItemMapper;
     private final SeckillCouponMapper seckillCouponMapper;
     private final ICouponService couponService;
+    private final IOrderLogisticsService orderLogisticsService;
     private final StringRedisTemplate stringRedisTemplate;
 
     @Override
@@ -106,12 +113,31 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
         order.setOrderType(1); // 普通商品订单
         order.setStatus(1);
+        // 查询收货地址（一次查询，运费计算和物流记录共用）
+        com.hmall.api.dto.AddressDTO addressDTO = null;
+        if (orderFormDTO.getAddressId() != null) {
+            try {
+                addressDTO = userClient.findAddressById(orderFormDTO.getAddressId());
+            } catch (Exception e) {
+                log.warn("查询收货地址失败: addressId={}", orderFormDTO.getAddressId(), e);
+            }
+        }
+        // 计算运费：根据收货地址和商品重量估算（国内默认 800 分=8元，跨境 5000 分=50元）
+        int postFee = calculateShippingFee(addressDTO, items, itemNumMap);
+        order.setPostFee(postFee);
         // 1.6.将Order写入数据库order表中
         save(order);
 
+        // 2.5.保存物流记录（含收货地址、发货地、运费）
+        saveOrderLogistics(order.getId(), addressDTO, postFee, items, itemNumMap);
+
         // 3.保存订单详情
-        List<OrderDetail> details = buildDetails(order.getId(), items, itemNumMap);
+        List<OrderDetail> details = buildDetails(order.getId(), items, itemNumMap, detailDTOS);
         detailService.saveBatch(details);
+
+        // P1-6 修复：ORDER_PLACE 用户行为事件原在事务内发送，若后续 deductStock 失败回滚，
+        // MQ 消息已发无法回滚。现移到 deductStock 之后，并通过 afterCommit 回调发送。
+        // 详见下方 5.1 节。
 
         // 4.发送消息通知购物车服务清理商品
         try {
@@ -128,9 +154,31 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             throw new BizIllegalException("库存不足！");
         }
 
+        // 5.1 发送 ORDER_PLACE 用户行为事件到 user.behavior.exchange（Phase 2.5 个性化推荐画像）
+        // P1-6 修复：优先注册 afterCommit 回调，事务提交后才发 MQ，避免事务回滚后 MQ 已发无法回滚。
+        // 若无 Spring 事务上下文（@GlobalTransactional 场景，createOrder 未标注 @Transactional），
+        // 降级为扣减库存后直接发送（保持原行为，但移到 deductStock 之后避免回滚后仍发 MQ）。
+        // 注意：afterCommit 回调无法访问事务上下文，需提前捕获 userId、details、items（effectively final）。
+        registerOrderPlaceBehavior(userId, details, items);
+
         // 6.标记优惠券为"已下单"
         if (couponId != null) {
             markCouponOrdered(couponId, userId, order.getId());
+        }
+
+        // 6.5 AI 随心搭联动：下单成功后标记搭配记录为"已下单"（accepted=1+action=order+orderId）
+        // 仅立即下单流程携带 outfit 上下文；失败不阻塞下单主流程（搭配状态可后续对账）
+        String outfitTaskId = orderFormDTO.getOutfitTaskId();
+        if (orderFormDTO.getOutfitRecordId() != null || (outfitTaskId != null && !outfitTaskId.isEmpty())) {
+            try {
+                itemClient.markOutfitOrdered(orderFormDTO.getOutfitRecordId(),
+                        outfitTaskId, orderFormDTO.getOutfitIndex(),
+                        order.getId(), userId);
+                log.info("搭配记录已下单标记已回调: orderId={}, outfitRecordId={}, outfitTaskId={}, outfitIndex={}",
+                        order.getId(), orderFormDTO.getOutfitRecordId(), outfitTaskId, orderFormDTO.getOutfitIndex());
+            } catch (Exception e) {
+                log.warn("标记搭配记录已下单失败（不影响下单）: orderId={}, err={}", order.getId(), e.getMessage());
+            }
         }
 
         // 7.发送延迟消息，用于超时未支付取消订单
@@ -146,6 +194,87 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
 
         return order.getId();
+    }
+
+    /**
+     * 发送 ORDER_PLACE 用户行为事件（P1-6 修复）
+     * <p>优先注册 afterCommit 回调，事务提交后才发 MQ，避免事务回滚后 MQ 已发无法回滚。
+     * 若无 Spring 事务上下文（@GlobalTransactional 场景，createOrder 未标注 @Transactional），
+     * 降级为直接发送（保持原行为，但已移到 deductStock 之后避免回滚后仍发 MQ）。
+     *
+     * @param userId  下单用户 ID（effectively final，供 afterCommit 回调捕获）
+     * @param details 订单详情列表（effectively final）
+     * @param items   商品 DTO 列表（effectively final）
+     */
+    private void registerOrderPlaceBehavior(Long userId, List<OrderDetail> details, List<ItemDTO> items) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    doSendOrderPlaceBehavior(userId, details, items);
+                }
+            });
+        } else {
+            // 无 Spring 事务上下文（@GlobalTransactional 场景）：降级为直接发送
+            doSendOrderPlaceBehavior(userId, details, items);
+        }
+    }
+
+    /**
+     * 实际发送 ORDER_PLACE 用户行为事件
+     * <p>对每个订单详情商品发送一个事件；ItemDTO 无 shopId 字段，使用 creater（商家ID）作为 shopId。
+     * <p>查询用户性别失败时 userGender 传 null 兜底（P1-8）；单条消息发送失败不阻塞其他商品埋点。
+     */
+    private void doSendOrderPlaceBehavior(Long userId, List<OrderDetail> details, List<ItemDTO> items) {
+        Map<Long, ItemDTO> itemMap = new HashMap<>();
+        for (ItemDTO i : items) {
+            itemMap.put(i.getId(), i);
+        }
+        // 查询用户性别（失败时 userGender 传 null 兜底，P1-8；下单场景只查一次，复用到所有商品消息）
+        String userGender = null;
+        try {
+            userGender = userClient.queryUserGender(userId);
+        } catch (Exception ex) {
+            log.warn("查询用户性别失败，userGender 传 null 兜底: userId={}", userId, ex);
+        }
+        for (OrderDetail detail : details) {
+            try {
+                ItemDTO itemDTO = itemMap.get(detail.getItemId());
+                List<String> styleTags = null;
+                if (itemDTO != null && itemDTO.getStyleTags() != null) {
+                    try {
+                        styleTags = JSONUtil.parseArray(itemDTO.getStyleTags()).toList(String.class);
+                    } catch (Exception ignore) {
+                        styleTags = null;
+                    }
+                }
+                UserBehaviorMessage msg = new UserBehaviorMessage(
+                        userId,
+                        detail.getItemId(),
+                        itemDTO != null ? itemDTO.getCreater() : null,
+                        itemDTO != null ? itemDTO.getCategory() : null,
+                        itemDTO != null ? itemDTO.getName() : null,
+                        itemDTO != null ? itemDTO.getColor() : null,
+                        itemDTO != null ? itemDTO.getSeason() : null,
+                        itemDTO != null && itemDTO.getPrice() != null ? itemDTO.getPrice().doubleValue() : null,
+                        MqConstants.BEHAVIOR_TYPE_ORDER_PLACE,
+                        LocalDateTime.now().toString(),
+                        itemDTO != null ? itemDTO.getImage() : null,
+                        styleTags,
+                        itemDTO != null ? itemDTO.getTargetGender() : null,
+                        userGender
+                );
+                rabbitMqHelper.sendMessage(
+                        MqConstants.USER_BEHAVIOR_EXCHANGE,
+                        MqConstants.USER_BEHAVIOR_KEY_PREFIX + MqConstants.BEHAVIOR_TYPE_ORDER_PLACE,
+                        msg
+                );
+                log.info("已发送用户行为事件: type={}, userId={}, itemId={}",
+                        MqConstants.BEHAVIOR_TYPE_ORDER_PLACE, userId, detail.getItemId());
+            } catch (Exception e) {
+                log.error("发送 ORDER_PLACE 用户行为事件失败: itemId={}", detail.getItemId(), e);
+            }
+        }
     }
 
     @Override
@@ -179,11 +308,11 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 List<MerchantOrderVO.OrderDetailVO> detailVOList = details.stream().map(d -> {
                     MerchantOrderVO.OrderDetailVO dvo = new MerchantOrderVO.OrderDetailVO();
                     dvo.setItemId(d.getItemId());
+                    dvo.setSkuId(d.getSkuId());
                     dvo.setName(d.getName());
                     dvo.setPrice(d.getPrice());
                     dvo.setNum(d.getNum());
                     dvo.setImage(d.getImage());
-                    dvo.setSpec(d.getSpec());
                     return dvo;
                 }).collect(Collectors.toList());
                 vo.setOrderDetails(detailVOList);
@@ -279,13 +408,20 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 保存订单详情
         OrderDetail detail = new OrderDetail();
         detail.setName(item.getName());
-        detail.setSpec(item.getSpec());
         detail.setPrice(seckillPrice); // 使用秒杀价
         detail.setNum(num);
         detail.setItemId(itemId);
         detail.setImage(item.getImage());
         detail.setOrderId(orderId);
+        // 成本价快照（与普通订单一致，用于利润统计）
+        detail.setCostPrice(item.getCostPrice() != null ? item.getCostPrice() : 0);
+        // 商家ID快照：下单时从 item.creater 拷贝，商品物理删除后仍能按商家查询订单
+        detail.setMerchantId(item.getCreater());
         detailService.save(detail);
+
+        // 秒杀订单同样创建物流记录（运费默认 0，发货时商家可补填）
+        saveOrderLogistics(orderId, null, 0, Collections.singletonList(item),
+                Collections.singletonMap(itemId, num));
 
         // 扣减DB库存（秒杀商品也需要扣减DB库存，保持Redis与DB一致）
         try {
@@ -497,20 +633,107 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
     }
 
-    private List<OrderDetail> buildDetails(Long orderId, List<ItemDTO> items, Map<Long, Integer> numMap) {
+    private List<OrderDetail> buildDetails(Long orderId, List<ItemDTO> items, Map<Long, Integer> numMap,
+                                           List<OrderDetailDTO> detailDTOS) {
+        // 按 itemId 索引 skuId（同一 item 多 sku 的场景当前架构暂未支持，取第一条匹配）
+        Map<Long, Long> itemSkuMap = new java.util.HashMap<>();
+        if (detailDTOS != null) {
+            for (OrderDetailDTO d : detailDTOS) {
+                if (d.getItemId() != null && d.getSkuId() != null) {
+                    itemSkuMap.putIfAbsent(d.getItemId(), d.getSkuId());
+                }
+            }
+        }
         List<OrderDetail> details = new ArrayList<>(items.size());
         for (ItemDTO item : items) {
             OrderDetail detail = new OrderDetail();
             detail.setName(item.getName());
-            detail.setSpec(item.getSpec());
             detail.setPrice(item.getPrice());
+            // 成本价快照：下单时从 item 表拷贝，保证历史利润统计准确
+            detail.setCostPrice(item.getCostPrice() != null ? item.getCostPrice() : 0);
             detail.setNum(numMap.get(item.getId()));
             detail.setItemId(item.getId());
+            // 透传 skuId（前端下单时传入，用于多 SKU 商品的具体规格记录）
+            detail.setSkuId(itemSkuMap.get(item.getId()));
             detail.setImage(item.getImage());
+            // 商家ID快照：下单时从 item.creater 拷贝，商品物理删除后仍能按商家查询订单
+            detail.setMerchantId(item.getCreater());
             detail.setOrderId(orderId);
             details.add(detail);
         }
         return details;
+    }
+
+    /**
+     * 计算运费（单位：分）
+     * <p>简化规则：首重1kg内 800分（8元），每增加1kg加 200分（2元）；跨境统一 5000分（50元）
+     * <p>地址为 null 时默认 800 分
+     */
+    private int calculateShippingFee(com.hmall.api.dto.AddressDTO addr, List<ItemDTO> items, Map<Long, Integer> numMap) {
+        if (addr == null) {
+            return 800; // 默认运费 8 元
+        }
+        // 计算总重量（克）
+        int totalWeight = 0;
+        for (ItemDTO item : items) {
+            int w = item.getWeight() != null ? item.getWeight() : 0;
+            totalWeight += w * numMap.getOrDefault(item.getId(), 1);
+        }
+        // 国内运费：首重1kg 8元，续重每1kg 2元；跨境运费：50元
+        // 简化：地址含"海外"/"国际"字样视为跨境，否则国内
+        boolean isOverseas = addr.getProvince() != null && (addr.getProvince().contains("海外") || addr.getProvince().contains("国际"));
+        if (isOverseas) {
+            return 5000;
+        }
+        int baseFee = 800; // 首重 8 元
+        if (totalWeight > 1000) {
+            int extraKg = (int) Math.ceil((totalWeight - 1000) / 1000.0);
+            baseFee += extraKg * 200;
+        }
+        return baseFee;
+    }
+
+    /**
+     * 保存物流记录（含收货地址快照、运费、包裹重量）
+     * <p>注意：order_logistics 表的 contact/mobile/province/city/town/street 为 NOT NULL，
+     * 地址查不到时填充空字符串占位，避免 SQL 约束异常。
+     */
+    private void saveOrderLogistics(Long orderId, com.hmall.api.dto.AddressDTO addr, int shippingFee,
+                                     List<ItemDTO> items, Map<Long, Integer> numMap) {
+        OrderLogistics logistics = new OrderLogistics();
+        logistics.setOrderId(orderId);
+        logistics.setLogisticsType(1); // 默认国内快递
+        logistics.setShippingFee(shippingFee);
+        logistics.setLogisticsNumber("");
+        logistics.setLogisticsCompany("");
+
+        // 填充收货地址快照（NOT NULL 字段必须有值，地址缺失时用空串占位）
+        if (addr != null) {
+            logistics.setContact(addr.getContact() != null ? addr.getContact() : "");
+            logistics.setMobile(addr.getMobile() != null ? addr.getMobile() : "");
+            logistics.setProvince(addr.getProvince() != null ? addr.getProvince() : "");
+            logistics.setCity(addr.getCity() != null ? addr.getCity() : "");
+            logistics.setTown(addr.getTown() != null ? addr.getTown() : "");
+            logistics.setStreet(addr.getStreet() != null ? addr.getStreet() : "");
+        } else {
+            // 地址为空时填充占位值，避免 NOT NULL 约束异常
+            logistics.setContact("");
+            logistics.setMobile("");
+            logistics.setProvince("");
+            logistics.setCity("");
+            logistics.setTown("");
+            logistics.setStreet("");
+        }
+
+        // 计算包裹总重量
+        int totalWeight = 0;
+        for (ItemDTO item : items) {
+            int w = item.getWeight() != null ? item.getWeight() : 0;
+            totalWeight += w * numMap.getOrDefault(item.getId(), 1);
+        }
+        logistics.setWeight(totalWeight);
+
+        orderLogisticsService.save(logistics);
     }
 
     @Override
@@ -640,6 +863,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             log.debug("订单取消跳过，订单状态已变更: orderId={}", orderId);
             return;
         }
+        // AI 随心搭联动：回退搭配记录"已下单"状态（恢复下单前状态，失败不阻塞取消主流程）
+        try {
+            itemClient.revertOutfitOrder(orderId, order.getUserId());
+            log.info("搭配记录已下单状态回退已回调: orderId={}", orderId);
+        } catch (Exception e) {
+            log.warn("回退搭配记录已下单状态失败（不影响取消）: orderId={}, err={}", orderId, e.getMessage());
+        }
         // 恢复库存
         List<OrderDetail> details = detailService.lambdaQuery()
                 .eq(OrderDetail::getOrderId, orderId)
@@ -661,9 +891,60 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         }
     }
 
+    /**
+     * 商家订单所有权校验
+     * <p>商品订单（orderType=1或3）：订单详情中必须包含当前商家的商品。
+     * <p>优惠券购买订单（orderType=2）：订单关联的优惠券 creater 必须为当前商家。
+     * <p>订单不存在时直接放行，交给上层方法处理。
+     */
+    private void checkMerchantOrderOwnership(Long orderId) {
+        if (orderId == null) {
+            return;
+        }
+        Long merchantId = UserContext.getUser();
+        if (merchantId == null) {
+            return; // 未登录交给上层处理
+        }
+        Order order = getById(orderId);
+        if (order == null) {
+            return; // 订单不存在交给上层处理
+        }
+        // 优惠券购买订单：校验优惠券 creater
+        if (order.getOrderType() != null && order.getOrderType() == 2) {
+            if (order.getCouponId() == null) {
+                throw new BizIllegalException("无权操作他人订单");
+            }
+            Coupon coupon = couponMapper.selectById(order.getCouponId());
+            if (coupon == null || coupon.getCreater() == null
+                    || !coupon.getCreater().equals(merchantId)) {
+                throw new BizIllegalException("无权操作他人订单");
+            }
+            return;
+        }
+        // 商品订单（普通/秒杀）：校验 order_detail 中是否包含商家的商品（按 merchant_id 快照校验）
+        Long count = Long.valueOf(detailService.lambdaQuery()
+                .eq(OrderDetail::getOrderId, orderId)
+                .eq(OrderDetail::getMerchantId, merchantId)
+                .count());
+        if (count == null || count == 0) {
+            throw new BizIllegalException("无权操作他人订单");
+        }
+    }
+
     @Override
     public PageDTO<MerchantOrderVO> queryMerchantOrderPage(int page, int size, Integer status, String beginTime, String endTime) {
+        // 按 order_detail.merchant_id 直接查询（商品物理删除后仍可查到订单）
+        Long merchantId = UserContext.getUser();
+        List<OrderDetail> merchantDetails = detailService.lambdaQuery()
+                .eq(OrderDetail::getMerchantId, merchantId).list();
+        List<Long> merchantOrderIds = merchantDetails.stream()
+                .map(OrderDetail::getOrderId).distinct().collect(Collectors.toList());
+        if (merchantOrderIds.isEmpty()) {
+            return PageDTO.of(0L, 1, Collections.emptyList());
+        }
+
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(Order::getId, merchantOrderIds);
         if (status != null) {
             wrapper.eq(Order::getStatus, status);
         }
@@ -719,6 +1000,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     @Override
     public MerchantOrderVO queryMerchantOrderDetail(Long orderId) {
+        // 商家订单所有权校验：只能查看包含自己商品的订单（或自己创建的优惠券订单）
+        checkMerchantOrderOwnership(orderId);
         Order order = getById(orderId);
         if (order == null) {
             return null;
@@ -727,6 +1010,7 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         MerchantOrderVO vo = new MerchantOrderVO()
                 .setId(order.getId())
                 .setTotalFee(order.getTotalFee())
+                .setPostFee(order.getPostFee())
                 .setPaymentType(order.getPaymentType())
                 .setUserId(order.getUserId())
                 .setStatus(order.getStatus())
@@ -734,7 +1018,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .setOrderType(order.getOrderType() != null ? order.getOrderType() : 1)
                 .setCreateTime(order.getCreateTime() != null ? order.getCreateTime().format(formatter) : null)
                 .setPayTime(order.getPayTime() != null ? order.getPayTime().format(formatter) : null)
-                .setConsignTime(order.getConsignTime() != null ? order.getConsignTime().format(formatter) : null);
+                .setConsignTime(order.getConsignTime() != null ? order.getConsignTime().format(formatter) : null)
+                .setEndTime(order.getEndTime() != null ? order.getEndTime().format(formatter) : null)
+                .setCloseTime(order.getCloseTime() != null ? order.getCloseTime().format(formatter) : null)
+                .setCommentTime(order.getCommentTime() != null ? order.getCommentTime().format(formatter) : null);
         if (order.getOrderType() != null && order.getOrderType() == 2) {
             vo.setItemName("优惠券购买订单");
             vo.setItemCount(1);
@@ -742,20 +1029,42 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             List<OrderDetail> details = detailService.lambdaQuery()
                     .eq(OrderDetail::getOrderId, orderId).list();
             if (details != null && !details.isEmpty()) {
-                vo.setItemName(details.get(0).getName());
+                // 秒杀订单商品名加 [秒杀] 前缀，与列表页展示一致
+                String namePrefix = (order.getOrderType() != null && order.getOrderType() == 3) ? "[秒杀] " : "";
+                vo.setItemName(namePrefix + details.get(0).getName());
                 vo.setItemCount(details.stream().mapToInt(OrderDetail::getNum).sum());
                 List<MerchantOrderVO.OrderDetailVO> detailVOList = details.stream().map(d -> {
                     MerchantOrderVO.OrderDetailVO dvo = new MerchantOrderVO.OrderDetailVO();
                     dvo.setItemId(d.getItemId());
+                    dvo.setSkuId(d.getSkuId());
                     dvo.setName(d.getName());
                     dvo.setPrice(d.getPrice());
+                    dvo.setCostPrice(d.getCostPrice());
                     dvo.setNum(d.getNum());
                     dvo.setImage(d.getImage());
-                    dvo.setSpec(d.getSpec());
                     return dvo;
                 }).collect(Collectors.toList());
                 vo.setOrderDetails(detailVOList);
             }
+        }
+        // 填充物流信息（含运费，供商家后台统计/详情查看；前台用户接口不会走到这里）
+        OrderLogistics logistics = orderLogisticsService.getById(orderId);
+        if (logistics != null) {
+            MerchantOrderVO.LogisticsVO lvo = new MerchantOrderVO.LogisticsVO();
+            lvo.setLogisticsType(logistics.getLogisticsType());
+            lvo.setLogisticsNumber(logistics.getLogisticsNumber());
+            lvo.setLogisticsCompany(logistics.getLogisticsCompany());
+            lvo.setTrackingUrl(logistics.getTrackingUrl());
+            lvo.setShipFromText(logistics.getShipFromText());
+            lvo.setContact(logistics.getContact());
+            lvo.setMobile(logistics.getMobile());
+            lvo.setProvince(logistics.getProvince());
+            lvo.setCity(logistics.getCity());
+            lvo.setTown(logistics.getTown());
+            lvo.setStreet(logistics.getStreet());
+            lvo.setWeight(logistics.getWeight());
+            lvo.setShippingFee(logistics.getShippingFee());
+            vo.setLogistics(lvo);
         }
         return vo;
     }
@@ -764,7 +1073,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
      * 发货（模拟：点击发货后商品立即变成到货状态）
      */
     @Override
-    public void shipOrder(Long orderId) {
+    public void shipOrder(Long orderId, ShipOrderDTO shipDTO) {
+        // 商家订单所有权校验：只能发货包含自己商品的订单
+        checkMerchantOrderOwnership(orderId);
         Order order = getById(orderId);
         if (order == null) {
             throw new BizIllegalException("订单不存在");
@@ -776,11 +1087,37 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         if (order.getStatus() != 2) {
             throw new BizIllegalException("订单状态不允许发货");
         }
+        // 更新物流记录（物流公司/单号等），下单时已创建 order_logistics
+        OrderLogistics logistics = orderLogisticsService.getById(orderId);
+        if (logistics != null && shipDTO != null) {
+            boolean dirty = false;
+            if (shipDTO.getLogisticsCompany() != null && !shipDTO.getLogisticsCompany().isEmpty()) {
+                logistics.setLogisticsCompany(shipDTO.getLogisticsCompany());
+                dirty = true;
+            }
+            if (shipDTO.getLogisticsCompanyCode() != null && !shipDTO.getLogisticsCompanyCode().isEmpty()) {
+                logistics.setLogisticsCompanyCode(shipDTO.getLogisticsCompanyCode());
+                dirty = true;
+            }
+            if (shipDTO.getLogisticsNumber() != null && !shipDTO.getLogisticsNumber().isEmpty()) {
+                logistics.setLogisticsNumber(shipDTO.getLogisticsNumber());
+                dirty = true;
+            }
+            if (shipDTO.getTrackingUrl() != null && !shipDTO.getTrackingUrl().isEmpty()) {
+                logistics.setTrackingUrl(shipDTO.getTrackingUrl());
+                dirty = true;
+            }
+            if (dirty) {
+                logistics.setUpdateTime(LocalDateTime.now());
+                orderLogisticsService.updateById(logistics);
+            }
+        }
         // 模拟发货：直接从"已付款未发货"变为"已到货待确认"
         order.setStatus(3); // 已发货（模拟场景下相当于到货）
         order.setConsignTime(LocalDateTime.now());
         updateById(order);
-        log.info("订单发货成功（模拟到货）: orderId={}", orderId);
+        log.info("订单发货成功（模拟到货）: orderId={}, 物流单号={}", orderId,
+                logistics != null ? logistics.getLogisticsNumber() : null);
     }
 
     /**
@@ -788,6 +1125,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
      */
     @Override
     public void refundOrder(Long orderId) {
+        // 商家订单所有权校验：只能退款包含自己商品的订单（或自己创建的优惠券订单）
+        checkMerchantOrderOwnership(orderId);
         Order order = getById(orderId);
         if (order == null) {
             throw new BizIllegalException("订单不存在");
@@ -878,18 +1217,39 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     @Override
     public OrderStatsDTO getMerchantOrderStats() {
+        // 按 order_detail.merchant_id 直接查询（商品物理删除后仍可查到订单）
+        Long merchantId = UserContext.getUser();
+        List<OrderDetail> merchantDetails = detailService.lambdaQuery()
+                .eq(OrderDetail::getMerchantId, merchantId).list();
+        List<Long> merchantOrderIds = merchantDetails.stream()
+                .map(OrderDetail::getOrderId).distinct().collect(Collectors.toList());
+        if (merchantOrderIds.isEmpty()) {
+            OrderStatsDTO empty = new OrderStatsDTO();
+            empty.setTodayNew(0L); empty.setPendingShip(0L); empty.setShipped(0L);
+            empty.setRefunding(0L); empty.setTodaySales(0L);
+            return empty;
+        }
+
         LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
         LocalDateTime todayEnd = LocalDateTime.of(LocalDate.now(), LocalTime.MAX);
 
         OrderStatsDTO stats = new OrderStatsDTO();
         stats.setTodayNew(Long.valueOf(lambdaQuery()
+                .in(Order::getId, merchantOrderIds)
                 .ge(Order::getCreateTime, todayStart)
                 .le(Order::getCreateTime, todayEnd)
                 .count()));
-        stats.setPendingShip(Long.valueOf(lambdaQuery().eq(Order::getStatus, 2).eq(Order::getOrderType, 1).count()));
-        stats.setShipped(Long.valueOf(lambdaQuery().eq(Order::getStatus, 3).eq(Order::getOrderType, 1).count()));
-        stats.setRefunding(Long.valueOf(lambdaQuery().eq(Order::getStatus, 7).count()));
+        stats.setPendingShip(Long.valueOf(lambdaQuery()
+                .in(Order::getId, merchantOrderIds)
+                .eq(Order::getStatus, 2).eq(Order::getOrderType, 1).count()));
+        stats.setShipped(Long.valueOf(lambdaQuery()
+                .in(Order::getId, merchantOrderIds)
+                .eq(Order::getStatus, 3).eq(Order::getOrderType, 1).count()));
+        stats.setRefunding(Long.valueOf(lambdaQuery()
+                .in(Order::getId, merchantOrderIds)
+                .eq(Order::getStatus, 7).count()));
         List<Order> todayOrders = lambdaQuery()
+                .in(Order::getId, merchantOrderIds)
                 .ge(Order::getCreateTime, todayStart)
                 .le(Order::getCreateTime, todayEnd)
                 .ne(Order::getStatus, 5)
@@ -901,6 +1261,16 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     @Override
     public List<SalesTrendDTO> getSalesTrend(Integer days) {
+        // 按 order_detail.merchant_id 直接查询（商品物理删除后仍可查到订单）
+        Long merchantId = UserContext.getUser();
+        List<OrderDetail> merchantDetails = detailService.lambdaQuery()
+                .eq(OrderDetail::getMerchantId, merchantId).list();
+        List<Long> merchantOrderIds = merchantDetails.stream()
+                .map(OrderDetail::getOrderId).distinct().collect(Collectors.toList());
+        if (merchantOrderIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         List<SalesTrendDTO> result = new ArrayList<>();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         for (int i = days - 1; i >= 0; i--) {
@@ -911,11 +1281,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             SalesTrendDTO dto = new SalesTrendDTO();
             dto.setDate(date.format(formatter));
             dto.setOrders(Long.valueOf(lambdaQuery()
+                    .in(Order::getId, merchantOrderIds)
                     .ge(Order::getCreateTime, dayStart)
                     .le(Order::getCreateTime, dayEnd)
                     .ne(Order::getStatus, 5)
                     .count()));
             List<Order> dayOrders = lambdaQuery()
+                    .in(Order::getId, merchantOrderIds)
                     .ge(Order::getCreateTime, dayStart)
                     .le(Order::getCreateTime, dayEnd)
                     .ne(Order::getStatus, 5)
@@ -929,8 +1301,13 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
     @Override
     public List<TopItemDTO> getTopItems(Integer limit) {
+        // 按 order_detail.merchant_id 直接查询（商品物理删除后仍可查到订单）
+        Long merchantId = UserContext.getUser();
         List<OrderDetail> all = detailService.lambdaQuery()
-                .apply("1=1").list();
+                .eq(OrderDetail::getMerchantId, merchantId).list();
+        if (all.isEmpty()) {
+            return Collections.emptyList();
+        }
         Map<Long, TopItemDTO> map = new HashMap<>();
         for (OrderDetail od : all) {
             TopItemDTO dto = map.computeIfAbsent(od.getItemId(), k -> {
@@ -949,6 +1326,157 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 .sorted((a, b) -> b.getSold().compareTo(a.getSold()))
                 .limit(limit)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 商家后台-利润统计（按时间范围）
+     * <p>仅统计已完成订单（状态 4=交易成功 / 6=已评价），不含已关闭（5）
+     * <p>销售额 = order.totalFee 之和（优惠后金额，不含运费）
+     * <p>商品成本 = order_detail.cost_price * num 之和
+     * <p>运费成本 = order_logistics.shipping_fee 之和
+     * <p>优惠折扣 = order.discount_amount 之和
+     * <p>毛利润 = 销售额 - 商品成本
+     * <p>净利润 = 销售额 - 商品成本 - 运费
+     */
+    @Override
+    public ProfitStatsDTO getProfitStats(Integer days) {
+        // 1. 构建时间范围
+        LocalDateTime startTime = null;
+        if (days != null && days > 0) {
+            startTime = LocalDateTime.of(LocalDate.now().minusDays(days - 1L), LocalTime.MIN);
+        }
+        // 2. 按 order_detail.merchant_id 直接查询（商品物理删除后仍可查到订单）
+        Long merchantId = UserContext.getUser();
+        List<OrderDetail> merchantDetails = detailService.lambdaQuery()
+                .eq(OrderDetail::getMerchantId, merchantId).list();
+        List<Long> merchantOrderIds = merchantDetails.stream()
+                .map(OrderDetail::getOrderId).distinct().collect(Collectors.toList());
+        if (merchantOrderIds.isEmpty()) {
+            ProfitStatsDTO empty = new ProfitStatsDTO();
+            empty.setOrderCount(0); empty.setTotalSales(0L); empty.setTotalCost(0L);
+            empty.setTotalShippingFee(0L); empty.setTotalDiscount(0L);
+            empty.setGrossProfit(0L); empty.setNetProfit(0L); empty.setProfitMargin(0.0);
+            return empty;
+        }
+        // 3. 查询已完成订单（状态 4/6），排除优惠券购买订单（orderType=2）
+        List<Order> orders = lambdaQuery()
+                .in(Order::getId, merchantOrderIds)
+                .in(Order::getStatus, 4, 6)
+                .ne(Order::getOrderType, 2)
+                .ge(startTime != null, Order::getCreateTime, startTime)
+                .list();
+        if (orders.isEmpty()) {
+            ProfitStatsDTO empty = new ProfitStatsDTO();
+            empty.setOrderCount(0); empty.setTotalSales(0L); empty.setTotalCost(0L);
+            empty.setTotalShippingFee(0L); empty.setTotalDiscount(0L);
+            empty.setGrossProfit(0L); empty.setNetProfit(0L); empty.setProfitMargin(0.0);
+            return empty;
+        }
+        // 4. 汇总销售额和优惠折扣
+        long totalSales = orders.stream()
+                .mapToLong(o -> o.getTotalFee() != null ? o.getTotalFee() : 0).sum();
+        long totalDiscount = orders.stream()
+                .mapToLong(o -> o.getDiscountAmount() != null ? o.getDiscountAmount() : 0).sum();
+        // 5. 查询订单详情（只统计当前商家的商品，按 merchant_id 快照过滤），汇总商品成本（cost_price * num）
+        List<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
+        List<OrderDetail> details = detailService.lambdaQuery()
+                .in(OrderDetail::getOrderId, orderIds)
+                .eq(OrderDetail::getMerchantId, merchantId).list();
+        long totalCost = details.stream()
+                .mapToLong(d -> (d.getCostPrice() != null ? d.getCostPrice() : 0) * (d.getNum() != null ? d.getNum() : 0))
+                .sum();
+        // 6. 查询物流记录，汇总运费
+        List<OrderLogistics> logistics = orderLogisticsService.lambdaQuery()
+                .in(OrderLogistics::getOrderId, orderIds).list();
+        long totalShippingFee = logistics.stream()
+                .mapToLong(l -> l.getShippingFee() != null ? l.getShippingFee() : 0).sum();
+        // 7. 计算利润
+        long grossProfit = totalSales - totalCost;
+        long netProfit = totalSales - totalCost - totalShippingFee;
+        double profitMargin = totalSales > 0 ? (double) netProfit * 100.0 / totalSales : 0.0;
+        // 8. 封装结果
+        ProfitStatsDTO stats = new ProfitStatsDTO();
+        stats.setOrderCount(orders.size());
+        stats.setTotalSales(totalSales);
+        stats.setTotalCost(totalCost);
+        stats.setTotalShippingFee(totalShippingFee);
+        stats.setTotalDiscount(totalDiscount);
+        stats.setGrossProfit(grossProfit);
+        stats.setNetProfit(netProfit);
+        stats.setProfitMargin(Math.round(profitMargin * 100.0) / 100.0);
+        return stats;
+    }
+
+    /**
+     * 商家后台-利润趋势（按天）
+     * <p>仅统计已完成订单（状态 4/6），按订单创建时间归到每一天
+     */
+    @Override
+    public List<ProfitTrendDTO> getProfitTrend(Integer days) {
+        if (days == null || days <= 0) {
+            days = 7;
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        // 1. 按 order_detail.merchant_id 直接查询（商品物理删除后仍可查到订单）
+        Long merchantId = UserContext.getUser();
+        List<OrderDetail> merchantDetails = detailService.lambdaQuery()
+                .eq(OrderDetail::getMerchantId, merchantId).list();
+        List<Long> merchantOrderIds = merchantDetails.stream()
+                .map(OrderDetail::getOrderId).distinct().collect(Collectors.toList());
+        if (merchantOrderIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // 2. 查询近 N 天已完成订单（状态 4/6，排除优惠券购买订单），仅含商家订单
+        LocalDateTime startTime = LocalDateTime.of(LocalDate.now().minusDays(days - 1L), LocalTime.MIN);
+        List<Order> orders = lambdaQuery()
+                .in(Order::getId, merchantOrderIds)
+                .in(Order::getStatus, 4, 6)
+                .ne(Order::getOrderType, 2)
+                .ge(Order::getCreateTime, startTime)
+                .list();
+        List<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toList());
+        // 3. 一次性查询订单详情（仅统计当前商家商品，按 merchant_id 快照过滤）和物流记录
+        Map<Long, List<OrderDetail>> detailMap = orderIds.isEmpty()
+                ? Collections.emptyMap()
+                : detailService.lambdaQuery()
+                    .in(OrderDetail::getOrderId, orderIds)
+                    .eq(OrderDetail::getMerchantId, merchantId).list().stream()
+                    .collect(Collectors.groupingBy(OrderDetail::getOrderId));
+        Map<Long, OrderLogistics> logisticsMap = orderIds.isEmpty()
+                ? Collections.emptyMap()
+                : orderLogisticsService.lambdaQuery().in(OrderLogistics::getOrderId, orderIds).list().stream()
+                    .collect(Collectors.toMap(OrderLogistics::getOrderId, l -> l, (a, b) -> a));
+        // 4. 按天聚合
+        Map<String, ProfitTrendDTO> dayMap = new LinkedHashMap<>();
+        for (int i = days - 1; i >= 0; i--) {
+            LocalDate date = LocalDate.now().minusDays(i);
+            ProfitTrendDTO dto = new ProfitTrendDTO();
+            dto.setDate(date.format(formatter));
+            dto.setSales(0L);
+            dto.setCost(0L);
+            dto.setShippingFee(0L);
+            dto.setNetProfit(0L);
+            dayMap.put(dto.getDate(), dto);
+        }
+        for (Order order : orders) {
+            if (order.getCreateTime() == null) continue;
+            String key = order.getCreateTime().toLocalDate().format(formatter);
+            ProfitTrendDTO dto = dayMap.get(key);
+            if (dto == null) continue;
+            long sales = order.getTotalFee() != null ? order.getTotalFee() : 0;
+            long cost = 0L;
+            List<OrderDetail> ds = detailMap.getOrDefault(order.getId(), Collections.emptyList());
+            for (OrderDetail d : ds) {
+                cost += (long) (d.getCostPrice() != null ? d.getCostPrice() : 0) * (d.getNum() != null ? d.getNum() : 0);
+            }
+            OrderLogistics lg = logisticsMap.get(order.getId());
+            long shipping = lg != null && lg.getShippingFee() != null ? lg.getShippingFee() : 0L;
+            dto.setSales(dto.getSales() + sales);
+            dto.setCost(dto.getCost() + cost);
+            dto.setShippingFee(dto.getShippingFee() + shipping);
+            dto.setNetProfit(dto.getNetProfit() + (sales - cost - shipping));
+        }
+        return new ArrayList<>(dayMap.values());
     }
 
     private String getStatusText(Integer status) {
@@ -1155,6 +1683,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void approveReturn(Long orderId) {
+        // 商家订单所有权校验：只能审核自己商品订单的退货
+        checkMerchantOrderOwnership(orderId);
         Order order = getById(orderId);
         if (order == null) {
             throw new BizIllegalException("订单不存在");
@@ -1181,6 +1711,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
      */
     @Override
     public void rejectReturn(Long orderId) {
+        // 商家订单所有权校验：只能拒绝自己商品订单的退货
+        checkMerchantOrderOwnership(orderId);
         Order order = getById(orderId);
         if (order == null) {
             throw new BizIllegalException("订单不存在");
@@ -1234,6 +1766,42 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
     }
 
     /**
+     * 查询用户所有已完成订单中的 item_id 去重列表
+     * 已完成订单状态：4（交易成功）、6（已评价）
+     * 仅查询商品订单（orderType=1）和秒杀商品订单（orderType=3），排除优惠券购买订单
+     * 用于 US-AT-17 排除已购买的商品
+     */
+    @Override
+    public List<Long> queryUserOrderItemIds(Long userId) {
+        if (userId == null) {
+            return CollUtils.emptyList();
+        }
+        // 1.查询用户已完成的订单（交易成功=4、已评价=6）
+        List<Order> orders = lambdaQuery()
+                .eq(Order::getUserId, userId)
+                .in(Order::getStatus, 4, 6)
+                .in(Order::getOrderType, 1, 3)
+                .list();
+        if (CollUtils.isEmpty(orders)) {
+            return CollUtils.emptyList();
+        }
+        // 2.提取订单ID
+        Set<Long> orderIds = orders.stream().map(Order::getId).collect(Collectors.toSet());
+        // 3.查询订单详情，提取 item_id 去重
+        List<OrderDetail> details = detailService.lambdaQuery()
+                .in(OrderDetail::getOrderId, orderIds)
+                .list();
+        if (CollUtils.isEmpty(details)) {
+            return CollUtils.emptyList();
+        }
+        return details.stream()
+                .map(OrderDetail::getItemId)
+                .filter(itemId -> itemId != null)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    /**
      * 退回余额（通用方法）
      */
     private void refundBalance(Order order) {
@@ -1273,7 +1841,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         closeTimeoutOrders(userId);
 
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Order::getUserId, userId);
+        wrapper.eq(Order::getUserId, userId)
+               .eq(Order::getUserDeleted, 0);  // 过滤用户已删除的订单
         if (status != null) {
             wrapper.eq(Order::getStatus, status);
         }
@@ -1298,6 +1867,177 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 vo.setItemCount(1);
             } else if (order.getOrderType() != null && order.getOrderType() == 3) {
                 // 秒杀商品订单：显示真实商品名 + [秒杀] 前缀提示
+                List<OrderDetail> details = detailService.lambdaQuery()
+                        .eq(OrderDetail::getOrderId, order.getId()).list();
+                if (details != null && !details.isEmpty()) {
+                    vo.setItemName("[秒杀] " + details.get(0).getName());
+                    vo.setItemCount(details.stream().mapToInt(OrderDetail::getNum).sum());
+                } else {
+                    vo.setItemName("[秒杀] 秒杀商品订单");
+                    vo.setItemCount(1);
+                }
+            } else {
+                List<OrderDetail> details = detailService.lambdaQuery()
+                        .eq(OrderDetail::getOrderId, order.getId()).list();
+                if (details != null && !details.isEmpty()) {
+                    vo.setItemName(details.get(0).getName());
+                    vo.setItemCount(details.stream().mapToInt(OrderDetail::getNum).sum());
+                }
+            }
+            return vo;
+        }).collect(Collectors.toList());
+        return PageDTO.of(orderPage.getTotal(), orderPage.getPages(), list);
+    }
+
+    /**
+     * 商品被物理删除时，标记所有引用该商品的 order_detail 快照
+     * <p>将 name 改为 "【原商品名】商品已删除"，image 改为占位图。
+     * <p>幂等设计：name NOT LIKE '【%】商品已删除' 避免重复添加前缀。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void markItemDeletedInOrders(Long itemId, String itemName) {
+        if (itemId == null) {
+            return;
+        }
+        // 查询所有引用该商品且未标记过的订单详情
+        List<OrderDetail> details = detailService.lambdaQuery()
+                .eq(OrderDetail::getItemId, itemId)
+                .notLike(OrderDetail::getName, "】商品已删除")
+                .list();
+        if (details == null || details.isEmpty()) {
+            log.info("商品删除标记订单快照：无引用记录, itemId={}", itemId);
+            return;
+        }
+        // 拼接删除标记名（保留原商品名便于追溯）
+        String safeName = (itemName == null || itemName.trim().isEmpty())
+                ? "商品" : itemName.trim();
+        String deletedName = "【" + safeName + "】商品已删除";
+        String placeholderImage = "/uploads/items/deleted.jpg";
+        // 批量更新
+        detailService.lambdaUpdate()
+                .eq(OrderDetail::getItemId, itemId)
+                .notLike(OrderDetail::getName, "】商品已删除")
+                .set(OrderDetail::getName, deletedName)
+                .set(OrderDetail::getImage, placeholderImage)
+                .update();
+        log.info("商品删除标记订单快照成功: itemId={}, 更新记录数={}", itemId, details.size());
+    }
+
+    /**
+     * 允许用户删除的订单状态：4=交易成功、5=已关闭、6=已评价、8=退货被拒绝
+     */
+    private static final List<Integer> DELETABLE_STATUS = java.util.Arrays.asList(4, 5, 6, 8);
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteOrder(Long orderId) {
+        Long userId = UserContext.getUser();
+        Order order = getById(orderId);
+        if (order == null) {
+            throw new BizIllegalException("订单不存在");
+        }
+        if (!order.getUserId().equals(userId)) {
+            throw new BizIllegalException("无权操作他人订单");
+        }
+        if (!DELETABLE_STATUS.contains(order.getStatus())) {
+            throw new BizIllegalException("当前订单状态不允许删除，仅允许删除已完成/已关闭/已评价/退货被拒绝的订单");
+        }
+        if (order.getUserDeleted() != null && order.getUserDeleted() == 1) {
+            return; // 已在回收站，幂等返回
+        }
+        boolean success = lambdaUpdate()
+                .set(Order::getUserDeleted, 1)
+                .eq(Order::getId, orderId)
+                .eq(Order::getUserId, userId)
+                .eq(Order::getUserDeleted, 0)
+                .update();
+        if (success) {
+            log.info("用户删除订单: orderId={}, userId={}", orderId, userId);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchDeleteOrders(List<Long> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return 0;
+        }
+        Long userId = UserContext.getUser();
+        // 查询这些订单中属于当前用户、状态允许删除、且未删除的
+        List<Order> orders = lambdaQuery()
+                .in(Order::getId, orderIds)
+                .eq(Order::getUserId, userId)
+                .in(Order::getStatus, DELETABLE_STATUS)
+                .eq(Order::getUserDeleted, 0)
+                .list();
+        if (orders.isEmpty()) {
+            return 0;
+        }
+        List<Long> validIds = orders.stream().map(Order::getId).collect(Collectors.toList());
+        boolean success = lambdaUpdate()
+                .set(Order::getUserDeleted, 1)
+                .in(Order::getId, validIds)
+                .eq(Order::getUserId, userId)
+                .eq(Order::getUserDeleted, 0)
+                .update();
+        if (success) {
+            log.info("用户批量删除订单: ids={}, userId={}, 数量={}", validIds, userId, validIds.size());
+            return validIds.size();
+        }
+        return 0;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void restoreOrder(Long orderId) {
+        Long userId = UserContext.getUser();
+        Order order = getById(orderId);
+        if (order == null) {
+            throw new BizIllegalException("订单不存在");
+        }
+        if (!order.getUserId().equals(userId)) {
+            throw new BizIllegalException("无权操作他人订单");
+        }
+        if (order.getUserDeleted() == null || order.getUserDeleted() == 0) {
+            return; // 不在回收站，幂等返回
+        }
+        boolean success = lambdaUpdate()
+                .set(Order::getUserDeleted, 0)
+                .eq(Order::getId, orderId)
+                .eq(Order::getUserId, userId)
+                .eq(Order::getUserDeleted, 1)
+                .update();
+        if (success) {
+            log.info("用户恢复订单: orderId={}, userId={}", orderId, userId);
+        }
+    }
+
+    @Override
+    public PageDTO<MerchantOrderVO> queryTrashOrderPage(Long userId, int page, int size) {
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Order::getUserId, userId)
+               .eq(Order::getUserDeleted, 1)
+               .orderByDesc(Order::getUpdateTime);
+        Page<Order> orderPage = page(new Page<>(page, size), wrapper);
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        List<MerchantOrderVO> list = orderPage.getRecords().stream().map(order -> {
+            MerchantOrderVO vo = new MerchantOrderVO()
+                    .setId(order.getId())
+                    .setTotalFee(order.getTotalFee())
+                    .setPaymentType(order.getPaymentType())
+                    .setUserId(order.getUserId())
+                    .setStatus(order.getStatus())
+                    .setStatusText(getStatusText(order.getStatus()))
+                    .setOrderType(order.getOrderType() != null ? order.getOrderType() : 1)
+                    .setCreateTime(order.getCreateTime() != null ? order.getCreateTime().format(formatter) : null)
+                    .setPayTime(order.getPayTime() != null ? order.getPayTime().format(formatter) : null)
+                    .setConsignTime(order.getConsignTime() != null ? order.getConsignTime().format(formatter) : null);
+            if (order.getOrderType() != null && order.getOrderType() == 2) {
+                vo.setItemName("优惠券购买订单");
+                vo.setItemCount(1);
+            } else if (order.getOrderType() != null && order.getOrderType() == 3) {
                 List<OrderDetail> details = detailService.lambdaQuery()
                         .eq(OrderDetail::getOrderId, order.getId()).list();
                 if (details != null && !details.isEmpty()) {

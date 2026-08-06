@@ -2,6 +2,7 @@ package com.hmall.item.controller;
 
 
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmall.common.domain.PageDTO;
 import com.hmall.common.utils.BeanUtils;
@@ -29,18 +30,19 @@ public class SearchController {
     public PageDTO<ItemDTO> search(ItemPageQuery query) {
         // 分页查询
         Page<Item> page = new Page<>(query.getPageNo(), query.getPageSize());
-        // 排序
+        // 排序（使用 OrderItem 替代废弃的 setAsc/setDesc）
         if (StrUtil.isNotBlank(query.getSortBy())) {
             if (query.getIsAsc()) {
-                page.setAsc(query.getSortBy());
+                page.addOrder(OrderItem.asc(query.getSortBy()));
             } else {
-                page.setDesc(query.getSortBy());
+                page.addOrder(OrderItem.desc(query.getSortBy()));
             }
         }
         Page<Item> result = itemService.lambdaQuery()
                 .like(StrUtil.isNotBlank(query.getKey()), Item::getName, query.getKey())
                 .eq(StrUtil.isNotBlank(query.getBrand()), Item::getBrand, query.getBrand())
                 .eq(StrUtil.isNotBlank(query.getCategory()), Item::getCategory, query.getCategory())
+                .eq(query.getCreater() != null, Item::getCreater, query.getCreater())
                 .eq(Item::getStatus, 1)
                 .between(query.getMaxPrice() != null, Item::getPrice, query.getMinPrice(), query.getMaxPrice())
                 .page(page);

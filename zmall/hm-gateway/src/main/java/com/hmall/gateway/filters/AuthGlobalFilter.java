@@ -26,12 +26,20 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
     private final JwtTool jwtTool;
     private final AntPathMatcher antPathMatcher = new AntPathMatcher();
 
-    /** 需要商家角色的路径模式 */
+    /** 需要商家角色的路径模式
+     * <p>注意：/shop/feed/{shopId} 是前台公开接口（用户查看商家推送），不能限制为商家。
+     * 商家后台路径用精确匹配：/shop/fans/page, /shop/fans/stats, /shop/feed/page, /shop/feed/upload。
+     * POST /shop/feed 和 DELETE /shop/feed/{feedId} 在 Service 层做角色与所有权校验。 */
     private static final List<String> MERCHANT_PATH_PATTERNS = List.of(
             "/merchant/**",
+            "/orders/merchant/**",
             "/items/admin/**",
             "/coupons/admin/**",
             "/seckill/admin/**",
+            "/shop/fans/page",
+            "/shop/fans/stats",
+            "/shop/feed/page",
+            "/shop/feed/upload",
             "/users/verify"
     );
     /** 前台公开访问路径（硬编码，防止Nacos配置覆盖导致鉴权失败） */
@@ -43,6 +51,14 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
             "/coupons/available",
             "/coupons/item/**"
     );
+    /** 服务间内部接口路径（禁止外部访问，仅允许来自微服务的调用） */
+    private static final List<String> INTERNAL_PATH_PATTERNS = List.of(
+            "/addresses/internal/**",
+            "/users/internal/**",
+            "/items/internal/**",
+            "/orders/internal/**",
+            "/coupons/internal/**"
+    );
     /** 商家管理员角色值 */
     private static final int ROLE_MERCHANT = 2;
 
@@ -52,6 +68,17 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getPath().toString();
         log.info("【网关鉴权】请求路径: {}", path);
+
+        // 服务间内部接口：网关层直接拒绝，避免外部越权访问
+        // 内部接口仅供微服务间通过 FeignClient 调用（不经网关）
+        boolean isInternalPath = INTERNAL_PATH_PATTERNS.stream()
+                .anyMatch(pattern -> antPathMatcher.match(pattern, path));
+        if (isInternalPath) {
+            log.warn("【网关鉴权】拒绝外部访问内部接口: {}", path);
+            ServerHttpResponse response = exchange.getResponse();
+            response.setStatusCode(HttpStatus.NOT_FOUND);
+            return response.setComplete();
+        }
 
         // 后台管理路径即使匹配了excludePaths也需要鉴权
         boolean isAdminPath = MERCHANT_PATH_PATTERNS.stream()
@@ -68,6 +95,18 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
 
         if (headers != null && !headers.isEmpty()) {
             token = headers.get(0);
+        }
+
+        // WebSocket 升级请求：浏览器原生 WS API 无法设置自定义 header，
+        // 前端通过 ?token=xxx 传递，此处从 query param 提取并校验
+        if (token == null) {
+            String upgrade = request.getHeaders().getFirst("upgrade");
+            if ("websocket".equalsIgnoreCase(upgrade)) {
+                token = request.getQueryParams().getFirst("token");
+                if (token != null && token.startsWith("Bearer ")) {
+                    token = token.substring(7);
+                }
+            }
         }
 
         // 去掉"Bearer "前缀（兼容有/无前缀的token格式）

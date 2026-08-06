@@ -54,6 +54,20 @@
     .modal-actions .btn-confirm { background: #e54346; color: #fff; }
     .modal-actions .btn-cancel { background: #f0f0f0; color: #333; }
     .msg { color: #e54346; font-size: 13px; margin-top: 8px; }
+    /* 顶部工具栏：批量删除 + 回收站入口 */
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .toolbar .left { display: flex; gap: 10px; align-items: center; }
+    .toolbar .btn-trash { padding: 6px 16px; border: 1px solid #ddd; background: #fff; color: #666; border-radius: 4px; font-size: 13px; cursor: pointer; }
+    .toolbar .btn-trash:hover { border-color: #e54346; color: #e54346; }
+    .toolbar .btn-batch-del { padding: 6px 16px; border: 1px solid #e54346; background: #fff; color: #e54346; border-radius: 4px; font-size: 13px; cursor: pointer; }
+    .toolbar .btn-batch-del:disabled { opacity: 0.5; cursor: not-allowed; }
+    .toolbar .btn-batch-del:hover:not(:disabled) { background: #e54346; color: #fff; }
+    /* 订单卡片左侧复选框 */
+    .order-card .select-col { display: flex; align-items: center; padding-left: 12px; }
+    .order-card .select-col input { width: 16px; height: 16px; cursor: pointer; }
+    /* 删除订单按钮样式 */
+    .order-footer .btn-danger { color: #999; border-color: #ddd; }
+    .order-footer .btn-danger:hover { color: #e54346; border-color: #e54346; }
   </style>
 </head>
 <body>
@@ -72,6 +86,14 @@
       <div class="tab" :class="{active: currentTab===5}" @click="switchTab(5)">已关闭</div>
     </div>
 
+    <!-- 工具栏：批量删除 + 回收站入口 -->
+    <div class="toolbar" v-if="orders.length > 0">
+      <div class="left">
+        <button class="btn-batch-del" :disabled="selectedIds.length === 0" @click="batchDelete">批量删除 ({{selectedIds.length}})</button>
+      </div>
+      <button class="btn-trash" @click="goTrash">回收站</button>
+    </div>
+
     <div v-if="orders.length === 0" class="no-data">暂无订单</div>
     <div v-for="order in orders" :key="order.id" class="order-card">
       <div class="order-header">
@@ -79,6 +101,9 @@
         <span class="status">{{order.statusText}}</span>
       </div>
       <div class="order-body">
+        <div class="select-col" v-if="isDeletable(order.status)">
+          <input type="checkbox" :value="order.id" v-model="selectedIds">
+        </div>
         <div class="item-info">
           <div class="name">{{order.itemName || '商品订单'}}</div>
           <div class="count">共 {{order.itemCount || 1}} 件商品 &nbsp; {{order.orderType === 2 ? '优惠券订单' : order.orderType === 3 ? '秒杀订单' : ''}}</div>
@@ -86,6 +111,7 @@
         <div class="price"><span class="yen">￥</span>{{formatPrice(order.totalFee)}}</div>
       </div>
       <div class="order-footer">
+        <button class="btn" @click="viewItem(order)">查看商品</button>
         <button v-if="order.status===1" class="btn-primary btn" @click="cancelOrder(order.id)">取消订单</button>
         <button v-if="order.status===1" class="btn-primary btn" @click="payOrder(order.id)">去支付</button>
         <button v-if="order.status===2" class="btn" @click="applyRefund(order.id)">申请退款</button>
@@ -95,6 +121,7 @@
         <button v-if="order.status===8" class="btn-primary btn" @click="applyReturn(order.id)">再次申请退货</button>
         <button v-if="order.status===8" class="btn" @click="confirmReceive(order.id)">确认收货</button>
         <button v-if="order.status===4" class="btn" @click="openComment(order)">评价</button>
+        <button v-if="isDeletable(order.status)" class="btn btn-danger" @click="deleteOrder(order.id)">删除订单</button>
       </div>
     </div>
 
@@ -165,7 +192,8 @@ new Vue({
     showComment: false,
     commentForm: { orderId: null, itemId: null, rating: 5, content: '' },
     commentImages: [],
-    commentMsg: ''
+    commentMsg: '',
+    selectedIds: []   // 批量删除选中的订单ID
   },
   computed: {
     pageNumbers() {
@@ -200,7 +228,39 @@ new Vue({
     switchTab(status) {
       this.currentTab = status;
       this.page = 1;
+      this.selectedIds = [];
       this.loadOrders();
+    },
+    // 终态订单才允许删除：4=交易成功、5=已关闭、6=已评价、8=退货被拒
+    isDeletable(status) {
+      return [4, 5, 6, 8].indexOf(status) >= 0;
+    },
+    // 单个删除订单（逻辑删除，进回收站）
+    deleteOrder(id) {
+      if (!confirm('确认删除该订单？删除后可在回收站恢复。')) return;
+      axios.delete('/orders/' + id).then(() => {
+        alert('删除成功');
+        this.selectedIds = this.selectedIds.filter(x => x !== id);
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '删除失败');
+      });
+    },
+    // 批量删除订单
+    batchDelete() {
+      if (this.selectedIds.length === 0) return;
+      if (!confirm('确认批量删除选中的 ' + this.selectedIds.length + ' 个订单？删除后可在回收站恢复。')) return;
+      axios.delete('/orders/batch', { data: this.selectedIds }).then(res => {
+        const count = (typeof res === 'number') ? res : (res && res.data) || this.selectedIds.length;
+        alert('成功删除 ' + count + ' 个订单');
+        this.selectedIds = [];
+        this.loadOrders();
+      }).catch(err => {
+        alert((err.response && err.response.data && err.response.data.msg) || '批量删除失败');
+      });
+    },
+    goTrash() {
+      location.href = '/trash.html';
     },
     cancelOrder(id) {
       if (!confirm('确认取消该订单？')) return;
@@ -247,6 +307,34 @@ new Vue({
         this.loadOrders();
       }).catch(err => {
         alert((err.response && err.response.data && err.response.data.msg) || '确认收货失败');
+      });
+    },
+    viewItem(order) {
+      // 优惠券订单无商品，直接提示
+      if (order.orderType === 2) {
+        alert('商品已无，暂无法查看详情哦~');
+        return;
+      }
+      // 查询订单详情获取itemId
+      axios.get('/orders/' + order.id).then(res => {
+        if (!res || !res.orderDetails || res.orderDetails.length === 0) {
+          alert('商品已无，暂无法查看详情哦~');
+          return;
+        }
+        const itemId = res.orderDetails[0].itemId;
+        // 校验商品是否存在（物理删除后后端返回 null/空，统一判断：无 id 即视为不存在）
+        axios.get('/items/' + itemId).then(itemRes => {
+          // axios 拦截器已返回 response.data，itemRes 即后端响应体
+          if (!itemRes || !itemRes.id || itemRes.status === 3) {
+            alert('商品已无，暂无法查看详情哦~');
+          } else {
+            location.href = '/item-detail.html?id=' + itemId;
+          }
+        }).catch(err => {
+          alert('商品已无，暂无法查看详情哦~');
+        });
+      }).catch(() => {
+        alert('商品已无，暂无法查看详情哦~');
       });
     },
     openComment(order) {

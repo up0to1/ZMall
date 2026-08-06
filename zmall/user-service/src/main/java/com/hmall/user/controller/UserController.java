@@ -8,8 +8,10 @@ import com.hmall.user.domain.dto.ChangePasswordDTO;
 import com.hmall.user.domain.dto.LoginFormDTO;
 import com.hmall.user.domain.dto.RegisterFormDTO;
 import com.hmall.user.domain.dto.UserUpdateDTO;
+import com.hmall.user.domain.po.BodyProfile;
 import com.hmall.user.domain.po.User;
 import com.hmall.user.domain.vo.UserLoginVO;
+import com.hmall.user.service.IBodyProfileService;
 import com.hmall.user.service.IUserService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
     private final IUserService userService;
+    private final IBodyProfileService bodyProfileService;
 
     @ApiOperation("用户登录接口")
     @PostMapping("login")
@@ -105,5 +108,33 @@ public class UserController {
         }
         user.setBalance(user.getBalance() + amount);
         userService.updateById(user);
+    }
+
+    /**
+     * 内部接口：查询用户性别（供行为埋点跨性别检测使用）
+     * <p>取用户默认身体档案（user_body_profile.is_default=1）的 gender 字段。
+     * <p>用户不存在或未填档案时返回 null（不抛异常，保证埋点方降级为 null 兜底）。
+     * <p>供 item/cart/trade 三个微服务的行为埋点（ITEM_VIEW/CART_ADD/ORDER_PLACE）补全 userGender。
+     */
+    @GetMapping("/{id}/gender")
+    public String queryUserGender(@PathVariable("id") Long id) {
+        if (id == null) {
+            return null;
+        }
+        // 优先取默认档案；若无默认档案，取最新一条有效档案；都没有则返回 null
+        BodyProfile profile = bodyProfileService.lambdaQuery()
+                .eq(BodyProfile::getUserId, id)
+                .eq(BodyProfile::getIsDefault, 1)
+                .eq(BodyProfile::getIsActive, 1)
+                .one();
+        if (profile == null) {
+            profile = bodyProfileService.lambdaQuery()
+                    .eq(BodyProfile::getUserId, id)
+                    .eq(BodyProfile::getIsActive, 1)
+                    .orderByDesc(BodyProfile::getCreateTime)
+                    .last("LIMIT 1")
+                    .one();
+        }
+        return profile != null ? profile.getGender() : null;
     }
 }

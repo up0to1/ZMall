@@ -43,6 +43,11 @@ public class Cart implements Serializable {
     private Long itemId;
 
     /**
+     * SKU ID（多SKU商品的具体规格组合；NULL=兼容旧数据，按默认SKU处理）
+     */
+    private Long skuId;
+
+    /**
      * 购买数量
      */
     private Integer num;
@@ -53,11 +58,6 @@ public class Cart implements Serializable {
     private String name;
 
     /**
-     * 商品动态属性键值集
-     */
-    private String spec;
-
-    /**
      * 价格,单位：分
      */
     private Integer price;
@@ -66,6 +66,12 @@ public class Cart implements Serializable {
      * 商品图片
      */
     private String image;
+
+    /**
+     * 套装标识（AI随心搭套装加购，P1-11修复：用于看板统计套装加购转化率）
+     * 为空表示普通加购（非套装）；同一 bundleId 的多条记录归属同一套装。
+     */
+    private String bundleId;
 
     /**
      * 创建时间

@@ -5,11 +5,19 @@
   <title>商品详情 - Michael杂货铺</title>
   <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
   <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/ai-outfit.css"/>
   <style>
     .detail-container { max-width: 1210px; margin: 0 auto; padding: 20px; }
     .detail-main { display: flex; gap: 30px; margin-bottom: 30px; }
     .detail-img { width: 450px; flex-shrink: 0; }
     .detail-img img { width: 100%; border: 1px solid #eee; border-radius: 4px; }
+    /* 主图轮播 */
+    .main-img-carousel { width: 450px; }
+    .main-img-carousel .carousel-main img { width: 100%; border: 1px solid #eee; border-radius: 4px; display: block; }
+    .main-img-carousel .carousel-thumbs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .main-img-carousel .carousel-thumbs .thumb { width: 60px; height: 60px; border: 2px solid #eee; border-radius: 4px; cursor: pointer; overflow: hidden; }
+    .main-img-carousel .carousel-thumbs .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .main-img-carousel .carousel-thumbs .thumb.active { border-color: #e54346; }
     .detail-info { flex: 1; }
     .detail-info h1 { font-size: 20px; color: #333; margin-bottom: 12px; line-height: 1.4; }
     .detail-price-box { background: #fef0f0; padding: 16px 20px; border-radius: 4px; margin-bottom: 16px; }
@@ -17,6 +25,27 @@
     .detail-price .yen { font-size: 16px; }
     .detail-meta { color: #999; font-size: 13px; margin-bottom: 8px; }
     .detail-meta span { margin-right: 20px; }
+    /* 商品属性参数表 */
+    .attr-section { margin-bottom: 30px; }
+    .attr-section h3 { font-size: 16px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e54346; }
+    .attr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .attr-table td { padding: 10px 14px; border: 1px solid #f0f0f0; }
+    .attr-table td.attr-label { width: 120px; color: #999; background: #fafafa; }
+    .attr-table td.attr-value { color: #333; }
+    .attr-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .attr-tags .tag { background: #f5f5f5; padding: 2px 10px; border-radius: 3px; font-size: 12px; color: #666; }
+    .gender-badge { display: inline-block; padding: 2px 10px; border-radius: 3px; font-size: 12px; }
+    .gender-badge.male { background: #ecf5ff; color: #409eff; }
+    .gender-badge.female { background: #fff0f6; color: #e54346; }
+    .gender-badge.unisex { background: #f0f9eb; color: #67c23a; }
+    /* 收藏按钮 */
+    .btn-fav { padding: 10px 20px; border: 1px solid #ddd; background: #fff; color: #666; cursor: pointer; border-radius: 4px; font-size: 14px; transition: all 0.2s; }
+    .btn-fav:hover { border-color: #e54346; color: #e54346; }
+    .btn-fav.favorited { color: #e54346; border-color: #e54346; }
+    /* 详情图展示区 */
+    .detail-images-section { margin-bottom: 30px; }
+    .detail-images-section h3 { font-size: 16px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #e54346; }
+    .detail-images-section img { width: 100%; border-radius: 4px; margin-bottom: 10px; display: block; }
     /* 商家信息 */
     .shop-info { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #fafafa; border-radius: 6px; margin-bottom: 16px; }
     .shop-info .shop-logo { width: 48px; height: 48px; border-radius: 50%; border: 1px solid #eee; }
@@ -28,7 +57,7 @@
     .shop-info .btn-follow.followed { border-color: #ccc; color: #999; background: #f5f5f5; }
     .detail-spec { margin-bottom: 16px; }
     .detail-spec label { font-weight: bold; margin-right: 8px; color: #333; }
-    .detail-actions { display: flex; gap: 12px; margin-top: 20px; }
+    .detail-actions { display: flex; gap: 12px; margin-top: 20px; align-items: center; }
     .btn-buy { padding: 12px 40px; background: #e54346; color: #fff; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
     .btn-buy:hover { background: #c73032; }
     .btn-cart { padding: 12px 40px; background: #ff9800; color: #fff; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
@@ -89,10 +118,30 @@
 <div id="app">
   <top></top>
   <div class="detail-container">
+    <!-- 商品不存在或已删除提示 -->
+    <div v-if="!item && loadFailed" class="no-data" style="padding:80px 20px;text-align:center;background:#fff;border-radius:8px;margin-bottom:20px;">
+      <div style="font-size:48px;color:#ddd;margin-bottom:16px;">⊘</div>
+      <div style="font-size:18px;color:#333;margin-bottom:8px;">商品已无，暂无法查看详情哦~</div>
+      <div style="font-size:13px;color:#999;">该商品可能已下架、被商家删除或链接错误</div>
+      <a href="/" style="display:inline-block;margin-top:18px;padding:8px 24px;background:#e54346;color:#fff;border-radius:4px;text-decoration:none;font-size:14px;">返回首页</a>
+    </div>
     <!-- 商品主信息 -->
     <div class="detail-main" v-if="item">
       <div class="detail-img">
-        <img :src="item.image" :alt="item.name"/>
+        <!-- 主图轮播：优先使用 main_images，兼容旧版 image -->
+        <div class="main-img-carousel" v-if="mainImages.length > 0">
+          <div class="carousel-main">
+            <img :src="mainImages[currentImgIndex]" :alt="item.name" @click="previewImage(mainImages[currentImgIndex], mainImages)"/>
+          </div>
+          <div class="carousel-thumbs" v-if="mainImages.length > 1">
+            <div v-for="(img, i) in mainImages" :key="i"
+                 class="thumb" :class="{active: i === currentImgIndex}"
+                 @click="currentImgIndex = i">
+              <img :src="img" :alt="'主图' + (i+1)"/>
+            </div>
+          </div>
+        </div>
+        <img v-else :src="item.image" :alt="item.name"/>
       </div>
       <div class="detail-info">
         <h1>{{item.name}}</h1>
@@ -104,6 +153,7 @@
           <span>库存：{{item.stock > 0 ? item.stock : '暂时缺货'}}</span>
           <span>分类：{{item.category || '-'}}</span>
           <span>品牌：{{item.brand || '-'}}</span>
+          <span v-if="shopInfo && shopInfo.currentShipFrom">发货地：{{shopInfo.currentShipFrom}}</span>
         </div>
         <!-- 商家信息 -->
         <div class="shop-info" v-if="shopInfo">
@@ -116,16 +166,94 @@
             {{isFollowed ? '已关注' : '+ 关注'}}
           </button>
         </div>
-        <div class="detail-spec" v-if="specObj">
-          <template v-for="(val, key) in specObj">
-            <label>{{key}}：</label><span style="margin-right:16px;color:#555">{{val}}</span>
-          </template>
+        <!-- 商品简略属性标签 -->
+        <div class="detail-spec" v-if="eavAttrs.color || eavAttrs.season || eavAttrs.material">
+          <label v-if="eavAttrs.color" style="margin-right:8px;">颜色：<span style="color:#555">{{eavAttrs.color}}</span></label>
+          <label v-if="eavAttrs.season" style="margin-right:8px;">季节：<span style="color:#555">{{seasonText(eavAttrs.season)}}</span></label>
+          <label v-if="eavAttrs.material" style="margin-right:8px;">材质：<span style="color:#555">{{eavAttrs.material}}</span></label>
+        </div>
+        <div class="detail-spec" v-if="eavAttrs.sizes && eavAttrs.sizes.length">
+          <label>尺码：</label>
+          <span v-for="s in eavAttrs.sizes" :key="s" style="margin-right:6px;color:#555;border:1px solid #ddd;padding:1px 8px;border-radius:3px;font-size:12px;">{{s}}</span>
+        </div>
+        <div class="detail-spec" v-if="eavAttrs.styleTags && eavAttrs.styleTags.length">
+          <label>风格：</label>
+          <span v-for="t in eavAttrs.styleTags" :key="t" style="margin-right:6px;background:#f5f5f5;padding:1px 8px;border-radius:3px;font-size:12px;color:#666;">{{t}}</span>
         </div>
         <div class="detail-actions">
           <button class="btn-buy" @click="buyNow" :disabled="item.stock <= 0" :style="item.stock <= 0 ? 'opacity:0.5;cursor:not-allowed;' : ''">立即购买</button>
           <button class="btn-cart" @click="addToCart" :disabled="item.stock <= 0" :style="item.stock <= 0 ? 'opacity:0.5;cursor:not-allowed;' : ''">加入购物车</button>
+          <button class="btn-ai-outfit" @click="goAiOutfit"
+                  :disabled="item.stock <= 0"
+                  :style="item.stock <= 0 ? 'opacity:0.5;cursor:not-allowed;' : ''">AI 随心搭</button>
+          <!-- 衣橱专注服装品类：非服装品类（如数码/家居）不显示加入衣橱按钮，仅可收藏 -->
+          <button v-if="isFashionCategory()" class="btn-ghost" @click="addToWardrobe(false)" :disabled="item.stock <= 0" :style="item.stock <= 0 ? 'opacity:0.5;cursor:not-allowed;' : ''">{{ inWardrobe ? '已在衣橱' : '加入衣橱' }}</button>
+          <button class="btn-fav" @click="toggleFavorite" :class="{favorited: isFavorite}">
+            {{ isFavorite ? '♥ 已收藏' : '♡ 收藏' }}
+          </button>
         </div>
       </div>
+    </div>
+
+    <!-- 商品属性参数表 -->
+    <div class="attr-section" v-if="item && hasAttrInfo">
+      <h3>商品参数</h3>
+      <table class="attr-table">
+        <tr v-if="item.brand">
+          <td class="attr-label">品牌</td><td class="attr-value">{{item.brand || '-'}}</td>
+          <td class="attr-label">分类</td><td class="attr-value">{{item.category || '-'}}</td>
+        </tr>
+        <tr v-if="item.targetGender">
+          <td class="attr-label">适合性别</td>
+          <td class="attr-value">
+            <span class="gender-badge" :class="item.targetGender">{{genderText(item.targetGender)}}</span>
+          </td>
+          <td class="attr-label">季节</td>
+          <td class="attr-value">{{eavAttrs.season ? seasonText(eavAttrs.season) : '-'}}</td>
+        </tr>
+        <tr v-if="eavAttrs.color || eavAttrs.material">
+          <td class="attr-label">颜色</td><td class="attr-value">{{eavAttrs.color || '-'}}</td>
+          <td class="attr-label">材质</td><td class="attr-value">{{eavAttrs.material || '-'}}</td>
+        </tr>
+        <tr v-if="item.origin || item.weight">
+          <td class="attr-label">产地</td><td class="attr-value">{{item.origin || '-'}}</td>
+          <td class="attr-label">重量</td><td class="attr-value">{{item.weight ? item.weight + ' 克' : '-'}}</td>
+        </tr>
+        <tr v-if="shopInfo && shopInfo.currentShipFrom">
+          <td class="attr-label">发货地</td>
+          <td class="attr-value" colspan="3">{{shopInfo.currentShipFrom}}</td>
+        </tr>
+        <tr v-if="eavAttrs.sizes && eavAttrs.sizes.length">
+          <td class="attr-label">尺码</td>
+          <td class="attr-value" colspan="3">
+            <span v-for="s in eavAttrs.sizes" :key="s" style="margin-right:8px;border:1px solid #ddd;padding:2px 10px;border-radius:3px;font-size:12px;">{{s}}</span>
+          </td>
+        </tr>
+        <tr v-if="eavAttrs.styleTags && eavAttrs.styleTags.length">
+          <td class="attr-label">风格标签</td>
+          <td class="attr-value" colspan="3">
+            <div class="attr-tags">
+              <span v-for="t in eavAttrs.styleTags" :key="t" class="tag">{{t}}</span>
+            </div>
+          </td>
+        </tr>
+        <tr v-if="item.careInstructions">
+          <td class="attr-label">养护说明</td>
+          <td class="attr-value" colspan="3">{{item.careInstructions}}</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- 商品描述 -->
+    <div class="attr-section" v-if="item && item.description">
+      <h3>商品描述</h3>
+      <div style="color:#555;font-size:14px;line-height:1.8;padding:10px 0;white-space:pre-wrap;">{{item.description}}</div>
+    </div>
+
+    <!-- 详情图展示区 -->
+    <div class="detail-images-section" v-if="detailImages.length > 0">
+      <h3>商品详情</h3>
+      <img v-for="(img, i) in detailImages" :key="i" :src="img" :alt="'详情图' + (i+1)" @click="previewImage(img, detailImages)"/>
     </div>
 
     <!-- 可用优惠券 -->
@@ -216,9 +344,16 @@ new Vue({
   el: "#app",
   data: {
     item: null,
-    specObj: null,
+    // 默认 SKU（加购时透传 skuId，支持多 SKU 商品）
+    defaultSku: null,
     shopInfo: null,
     isFollowed: false,
+    // 主图轮播
+    mainImages: [],
+    detailImages: [],
+    currentImgIndex: 0,
+    // EAV 属性（从后端 ItemDTO 返回，color/season/styleTags/sizes/material）
+    eavAttrs: { color: null, season: null, styleTags: [], sizes: [], material: null },
     coupons: [],
     comments: [],
     commentPage: 1,
@@ -228,7 +363,9 @@ new Vue({
     commentJumpPage: 1,
     showCouponModal: false,
     currentCoupon: {},
-    itemId: null
+    itemId: null,
+    inWardrobe: false,  // v3.1：是否已在衣橱
+    isFavorite: false,  // 商品收藏状态
   },
   computed: {
     commentPages() {
@@ -240,6 +377,14 @@ new Vue({
       const end = Math.min(this.commentPages, this.commentPage + 2);
       for (let i = start; i <= end; i++) pages.push(i);
       return pages;
+    },
+    // 是否有商品参数信息可展示
+    hasAttrInfo() {
+      const i = this.item, e = this.eavAttrs;
+      if (!i) return false;
+      return !!(i.brand || i.targetGender || i.origin || i.weight || i.careInstructions ||
+                e.color || e.season || e.material ||
+                (e.sizes && e.sizes.length) || (e.styleTags && e.styleTags.length));
     }
   },
   created() {
@@ -248,21 +393,126 @@ new Vue({
       this.loadItem();
       this.loadCoupons();
       this.loadComments(1);
+      // v3.1：登录用户检查是否已在衣橱
+      if (util.isLogin()) {
+        this.checkWardrobe();
+      }
     }
   },
   methods: {
     loadItem() {
       axios.get('/items/' + this.itemId).then(res => {
-        this.item = res;
-        if (res.spec) {
-          try { this.specObj = JSON.parse(res.spec); } catch(e) { this.specObj = null; }
+        // axios 拦截器已返回 response.data，res 即后端响应体
+        // 商品被物理删除时后端返回 null/空，显式判断避免后续属性访问抛错
+        if (!res || !res.id) {
+          this.loadFailed = true;
+          return;
         }
+        this.item = res;
+        // 加载默认 SKU（用于加购时透传 skuId）
+        axios.get('/skus/default-by-spu/' + this.itemId).then(sku => {
+          this.defaultSku = sku;
+        }).catch(() => { this.defaultSku = null; });
+        // 解析主图列表：优先 main_images，兼容旧版 image
+        let imgs = [];
+        if (res.mainImages) {
+          try { imgs = JSON.parse(res.mainImages); } catch(e) { imgs = []; }
+        }
+        if (!Array.isArray(imgs) || imgs.length === 0) {
+          imgs = res.image ? [res.image] : [];
+        }
+        this.mainImages = imgs;
+        this.currentImgIndex = 0;
+        // 解析详情图列表
+        let dimgs = [];
+        if (res.detailImages) {
+          try { dimgs = JSON.parse(res.detailImages); } catch(e) { dimgs = []; }
+        }
+        this.detailImages = Array.isArray(dimgs) ? dimgs : [];
+        // 解析 EAV 属性（后端 ItemDTO 已填充 color/season/styleTags/sizes/material）
+        let styleTags = [];
+        if (res.styleTags) {
+          try { styleTags = JSON.parse(res.styleTags); } catch(e) { styleTags = []; }
+        }
+        let sizes = [];
+        if (res.sizes) {
+          try { sizes = JSON.parse(res.sizes); } catch(e) { sizes = []; }
+        }
+        this.eavAttrs = {
+          color: res.color || null,
+          season: res.season || null,
+          styleTags: Array.isArray(styleTags) ? styleTags : [],
+          sizes: Array.isArray(sizes) ? sizes : [],
+          material: res.material || null,
+        };
         // 加载商家信息
         if (res.creater) {
           this.loadShopInfo(res.creater);
         }
+        // 检查收藏状态（已登录才查）
+        if (util.isLogin()) {
+          axios.get('/favorites/' + this.itemId + '/check').then(r => {
+            this.isFavorite = !!(r && r.isFavorite);
+          }).catch(() => {});
+          // 浏览记录埋点：已登录用户访问商品详情页时上报，失败静默处理
+          axios.post('/browse-history', {
+            itemId: this.itemId,
+            viewSource: 'direct',
+            viewDuration: 0
+          }).catch(() => {});
+        }
+      }).catch(() => { this.loadFailed = true; });
+    },
+    // 切换收藏状态（收藏联动衣橱：服装品类收藏时自动加入衣橱，取消收藏时同步移除）
+    toggleFavorite() {
+      if (!util.isLogin()) {
+        location.href = './login.html';
+        return;
+      }
+      if (this.isFavorite) {
+        axios.delete('/favorites/' + this.itemId).then(() => {
+          this.isFavorite = false;
+          // 服装品类：取消收藏时同步从衣橱移除该单品
+          if (this.isFashionCategory()) {
+            this.removeFromWardrobeByItemId();
+          }
+        }).catch(() => {});
+      } else {
+        axios.post('/favorites/' + this.itemId).then(() => {
+          this.isFavorite = true;
+          // 服装品类：收藏时同步加入衣橱（衣橱专注服装品类，静默不弹提示）
+          if (this.isFashionCategory() && !this.inWardrobe) {
+            this.addToWardrobe(true);
+          }
+        }).catch(() => {});
+      }
+    },
+    // 判断商品是否为服装品类（衣橱专注服装：上衣/下装/全身套装/鞋/帽子/包/配饰）
+    isFashionCategory() {
+      const cat = (this.item && this.item.category) || '';
+      return ['上衣', '下装', '全身套装', '鞋', '帽子', '包', '配饰'].indexOf(cat) >= 0;
+    },
+    // 从衣橱移除指定商品（取消收藏联动）
+    removeFromWardrobeByItemId() {
+      axios.get('/wardrobe').then(res => {
+        const list = Array.isArray(res) ? res : [];
+        const entry = list.find(w => w.itemType === 1 && String(w.itemId) === String(this.itemId));
+        if (entry && entry.id) {
+          axios.delete('/wardrobe/' + entry.id).then(() => {
+            this.inWardrobe = false;
+          }).catch(() => {});
+        }
       }).catch(() => {});
     },
+    // 性别中文映射
+    genderText(g) {
+      return { male: '男装', female: '女装', unisex: '中性' }[g] || g || '-';
+    },
+    // 季节中文映射
+    seasonText(s) {
+      return { spring: '春季', summer: '夏季', autumn: '秋季', winter: '冬季', all: '四季通用' }[s] || s || '-';
+    },
+    // v3.2：加载店铺信息（关注状态、店铺资料）
     loadShopInfo(merchantUserId) {
       axios.get('/shop/info/' + merchantUserId).then(res => {
         this.shopInfo = res || {};
@@ -327,11 +577,17 @@ new Vue({
     },
     buyNow() {
       if (!util.isLogin()) { location.href = '/login.html'; return; }
+      // 立即购买不携带 AI 搭配上下文，清除残留的待下单标记（避免误标"已下单"）
+      localStorage.removeItem("pendingOutfitOrder");
       location.href = '/order-confirm.html?id=' + this.itemId;
     },
     addToCart() {
       if (!util.isLogin()) { location.href = '/login.html'; return; }
-      axios.post('/carts', { itemId: this.itemId, num: 1 }).then(() => {
+      const payload = { itemId: this.itemId, num: 1 };
+      if (this.defaultSku && this.defaultSku.id) {
+        payload.skuId = this.defaultSku.id;
+      }
+      axios.post('/carts', payload).then(() => {
         alert('已加入购物车');
       }).catch(err => {
         alert((err.response && err.response.data && err.response.data.msg) || '添加购物车失败');
@@ -363,7 +619,43 @@ new Vue({
     },
     goSeckill() {
       location.href = '/seckill-index.html';
-    }
+    },
+    // v3.1：跳转 AI 随心搭（商品驱动模式）
+    goAiOutfit() {
+      if (!util.isLogin()) { location.href = '/login.html'; return; }
+      location.href = '/outfit-product.html?id=' + this.itemId;
+    },
+    // v3.1：检查商品是否已在用户衣橱
+    checkWardrobe() {
+      axios.get('/wardrobe/my-item-ids').then(res => {
+        const ids = Array.isArray(res) ? res : [];
+        this.inWardrobe = ids.map(String).indexOf(String(this.itemId)) >= 0;
+      }).catch(() => {});
+    },
+    // v3.1：加入衣橱（silent=true 时静默加入，用于收藏联动，不弹提示）
+    addToWardrobe(silent) {
+      if (!util.isLogin()) { location.href = '/login.html'; return; }
+      if (this.inWardrobe) {
+        if (!silent) util.toast('该商品已在衣橱中', 'info');
+        return;
+      }
+      const item = this.item || {};
+      const payload = {
+        itemType: 1,
+        itemId: this.itemId,
+        category: item.category || null,
+        color: null,  // 商品本身无 color 字段，由用户后续在衣橱中标注
+        styleTags: null,
+      };
+      axios.post('/wardrobe', payload).then(() => {
+        this.inWardrobe = true;
+        if (!silent) util.toast('已加入衣橱', 'success');
+      }).catch(err => {
+        if (silent) return;
+        const msg = (err.response && err.response.data && (err.response.data.msg || err.response.data.detail)) || '加入衣橱失败';
+        util.toast(msg, 'error');
+      });
+    },
   }
 });
 </script>

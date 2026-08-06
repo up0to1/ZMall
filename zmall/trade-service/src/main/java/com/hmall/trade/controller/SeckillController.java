@@ -91,10 +91,10 @@ public class SeckillController {
         seckillService.updateSeckillStock(itemId, stock);
     }
 
-    @ApiOperation("查询秒杀商品列表")
+    @ApiOperation("查询秒杀商品列表（管理后台，按商家过滤）")
     @GetMapping("/admin/item/list")
     public List<SeckillItemVO> listSeckillItems() {
-        return seckillService.listSeckillItems();
+        return seckillService.listSeckillItemsForAdmin();
     }
 
     @ApiOperation("预热秒杀商品库存")

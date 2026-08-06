@@ -8,6 +8,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -54,6 +55,60 @@ public class LocalFileStorage implements FileStorageStrategy {
             throw new RuntimeException("文件上传失败");
         }
 
+        return relativePath;
+    }
+
+    @Override
+    public String upload(byte[] content, String originalFilename, String contentType, String directory) {
+        if (content == null || content.length == 0) {
+            throw new RuntimeException("上传文件内容不能为空");
+        }
+        // 校验文件大小
+        if (content.length > uploadProperties.getMaxSize()) {
+            throw new RuntimeException("文件大小超过限制，最大允许" + (uploadProperties.getMaxSize() / 1024 / 1024) + "MB");
+        }
+        // 推断扩展名
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            String extNoDot = extension.substring(1).toLowerCase();
+            Set<String> allowed = new HashSet<>(Arrays.asList(uploadProperties.getAllowedExtensions().split(",")));
+            if (!allowed.contains(extNoDot)) {
+                throw new RuntimeException("不支持的文件类型，仅允许: " + uploadProperties.getAllowedExtensions());
+            }
+        } else if (contentType != null) {
+            // 从 contentType 推断扩展名
+            String ct = contentType.toLowerCase();
+            if ("image/png".equals(ct)) {
+                extension = ".png";
+            } else if ("image/gif".equals(ct)) {
+                extension = ".gif";
+            } else if ("image/webp".equals(ct)) {
+                extension = ".webp";
+            } else if ("image/bmp".equals(ct)) {
+                extension = ".bmp";
+            } else {
+                // image/jpeg、image/jpg 及其他类型默认 .jpg
+                extension = ".jpg";
+            }
+        }
+        String newFileName = UUID.randomUUID().toString().replace("-", "") + extension;
+        String subPath = directory != null ? directory + "/" : "";
+        String relativePath = uploadProperties.getUrlPrefix() + subPath + newFileName;
+
+        File uploadDir = new File(uploadProperties.getBasePath(), subPath);
+        if (!uploadDir.exists()) {
+            uploadDir.mkdirs();
+        }
+
+        File destFile = new File(uploadDir, newFileName);
+        try {
+            Files.write(destFile.toPath(), content);
+            log.info("文件上传成功(本地存储,bytes版本): {}", relativePath);
+        } catch (IOException e) {
+            log.error("文件上传失败: {}", e.getMessage(), e);
+            throw new RuntimeException("文件上传失败");
+        }
         return relativePath;
     }
 

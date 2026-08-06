@@ -62,6 +62,16 @@
             <artifactId>knife4j-gateway-spring-boot-starter</artifactId>
             <version>4.1.0</version>
         </dependency>
+        <!--Reactive Redis（限流过滤器用，WebFlux 环境）-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+        <!--Actuator（健康检查 + 监控指标）-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
     </dependencies>
     <build>
         <finalName>${project.artifactId}</finalName>

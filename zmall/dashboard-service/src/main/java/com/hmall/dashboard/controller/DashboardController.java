@@ -1,5 +1,8 @@
 package com.hmall.dashboard.controller;
 
+import com.hmall.api.dto.AiModelStatsDTO;
+import com.hmall.api.dto.AiRatingDistDTO;
+import com.hmall.api.dto.AiTaskTrendDTO;
 import com.hmall.api.dto.SalesTrendDTO;
 import com.hmall.api.dto.TopItemDTO;
 import com.hmall.dashboard.domain.dto.DashboardDTO;
@@ -42,5 +45,23 @@ public class DashboardController {
     @GetMapping("/seckill")
     public List<SeckillStatsDTO> getSeckillStats() {
         return dashboardService.getSeckillStats();
+    }
+
+    @ApiOperation("AI 模特图统计概览（阶段一）")
+    @GetMapping("/ai-overview")
+    public AiModelStatsDTO getAiOverview() {
+        return dashboardService.getAiOverview();
+    }
+
+    @ApiOperation("AI 模特图任务趋势（阶段一）")
+    @GetMapping("/ai-trend")
+    public List<AiTaskTrendDTO> getAiTrend(@RequestParam(value = "days", defaultValue = "7") int days) {
+        return dashboardService.getAiTrend(days);
+    }
+
+    @ApiOperation("AI 模特图评分分布（阶段一）")
+    @GetMapping("/ai-rating-dist")
+    public List<AiRatingDistDTO> getAiRatingDist() {
+        return dashboardService.getAiRatingDist();
     }
 }

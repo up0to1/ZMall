@@ -6,6 +6,7 @@ import com.hmall.api.vo.FansVO;
 import com.hmall.api.vo.FeedVO;
 import com.hmall.api.dto.ShopFeedDTO;
 import com.hmall.social.domain.dto.ShopProfileDTO;
+import com.hmall.social.domain.dto.ShopSimpleDTO;
 import com.hmall.social.domain.dto.FeedScrollDTO;
 import com.hmall.common.domain.PageDTO;
 
@@ -36,4 +37,6 @@ public interface IShopService {
     FeedScrollDTO<FeedVO> queryFollowFeed(Long userId, Double lastScore, Double firstScore, int size);
 
     PageDTO<ShopProfileDTO> queryFollowList(Long userId, int page, int size);
+
+    List<ShopSimpleDTO> listShops();
 }

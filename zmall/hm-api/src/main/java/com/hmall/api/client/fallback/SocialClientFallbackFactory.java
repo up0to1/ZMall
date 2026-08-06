@@ -76,6 +76,13 @@ public class SocialClientFallbackFactory implements FallbackFactory<SocialClient
                 log.error("远程调用SocialClient#getCommentStats方法出现异常", cause);
                 return new CommentStatsVO();
             }
+
+            @Override
+            public String getShopNameByUserId(Long userId) {
+                log.error("远程调用SocialClient#getShopNameByUserId方法出现异常，参数：userId={}", userId, cause);
+                // 降级返回 null，调用方（AI 模特图水印）会跳过水印逻辑
+                return null;
+            }
         };
     }
 }

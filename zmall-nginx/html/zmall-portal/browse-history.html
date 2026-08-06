@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>浏览记录 - Michael杂货铺</title>
+  <link rel="stylesheet" type="text/css" href="./css/webbase.css"/>
+  <link rel="stylesheet" type="text/css" href="./css/index.css"/>
+  <style>
+    .history-container { max-width: 1210px; margin: 0 auto; padding: 20px; }
+    .history-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .history-header h2 { font-size: 22px; color: #333; }
+    .history-header .header-actions { display: flex; gap: 12px; }
+    .history-header .btn { padding: 8px 20px; border: 1px solid #ddd; background: #fff; color: #666; cursor: pointer; border-radius: 4px; font-size: 14px; transition: all 0.2s; }
+    .history-header .btn:hover { border-color: #e54346; color: #e54346; }
+    .history-header .btn-danger { border-color: #e54346; color: #e54346; }
+    .history-header .btn-danger:hover { background: #e54346; color: #fff; }
+    .history-header .btn-danger:disabled { border-color: #ccc; color: #ccc; cursor: not-allowed; background: #fff; }
+    /* 工具栏：全选 + 批量删除 */
+    .history-toolbar { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid #f0f0f0; margin-bottom: 16px; }
+    .history-toolbar label { font-size: 14px; color: #666; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+    .history-toolbar .selected-count { font-size: 13px; color: #999; }
+    /* 浏览记录卡片 */
+    .history-list { background: #fff; border-radius: 8px; overflow: hidden; }
+    .history-item { display: flex; align-items: center; padding: 16px 20px; border-bottom: 1px solid #f5f5f5; transition: background 0.2s; }
+    .history-item:hover { background: #fafafa; }
+    .history-item:last-child { border-bottom: none; }
+    .history-item .item-check { width: 40px; flex-shrink: 0; }
+    .history-item .item-img { width: 80px; height: 80px; flex-shrink: 0; border: 1px solid #eee; border-radius: 4px; overflow: hidden; cursor: pointer; }
+    .history-item .item-img img { width: 100%; height: 100%; object-fit: cover; }
+    .history-item .item-info { flex: 1; padding: 0 20px; cursor: pointer; }
+    .history-item .item-info .item-name { font-size: 15px; color: #333; margin-bottom: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .history-item .item-info .item-name:hover { color: #e54346; }
+    .history-item .item-info .item-meta { font-size: 12px; color: #999; }
+    .history-item .item-info .item-meta span { margin-right: 16px; }
+    .history-item .item-info .item-tags { margin-top: 4px; }
+    .history-item .item-info .item-tags .tag { display: inline-block; background: #f5f5f5; color: #888; font-size: 11px; padding: 1px 8px; border-radius: 3px; margin-right: 6px; }
+    .history-item .item-price { width: 120px; flex-shrink: 0; text-align: right; color: #e54346; font-size: 16px; font-weight: bold; }
+    .history-item .item-price .yen { font-size: 12px; }
+    .history-item .item-view-count { width: 90px; flex-shrink: 0; text-align: center; font-size: 13px; color: #666; }
+    .history-item .item-view-count .count { color: #e54346; font-weight: bold; }
+    .history-item .item-time { width: 140px; flex-shrink: 0; text-align: center; font-size: 12px; color: #999; }
+    .history-item .item-delete { width: 60px; flex-shrink: 0; text-align: center; }
+    .history-item .item-delete button { padding: 4px 12px; border: 1px solid #ddd; background: #fff; color: #999; cursor: pointer; border-radius: 3px; font-size: 12px; }
+    .history-item .item-delete button:hover { border-color: #e54346; color: #e54346; }
+    /* 空状态 */
+    .empty-state { text-align: center; padding: 80px 20px; background: #fff; border-radius: 8px; }
+    .empty-state .empty-icon { font-size: 56px; color: #ddd; margin-bottom: 16px; }
+    .empty-state .empty-text { font-size: 16px; color: #666; margin-bottom: 20px; }
+    .empty-state a { display: inline-block; padding: 10px 30px; background: #e54346; color: #fff; border-radius: 4px; text-decoration: none; font-size: 14px; }
+    /* 分页 */
+    .pagination { text-align: center; margin-top: 24px; }
+    .pagination a { display: inline-block; padding: 6px 14px; margin: 0 4px; border: 1px solid #ddd; border-radius: 3px; color: #333; text-decoration: none; font-size: 13px; }
+    .pagination a.active { background: #e54346; color: #fff; border-color: #e54346; }
+    .pagination a:hover { border-color: #e54346; color: #e54346; }
+    .pagination a.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+    .pagination span { font-size: 13px; color: #666; margin: 0 4px; }
+    /* 确认弹窗 */
+    .modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+    .modal-box { background: #fff; border-radius: 8px; width: 360px; padding: 24px; }
+    .modal-box h3 { text-align: center; color: #e54346; margin-bottom: 16px; }
+    .modal-box p { text-align: center; color: #555; font-size: 14px; margin-bottom: 20px; }
+    .modal-actions { display: flex; gap: 12px; justify-content: center; }
+    .modal-actions button { padding: 8px 28px; border-radius: 4px; font-size: 14px; cursor: pointer; border: none; }
+    .modal-actions .btn-confirm { background: #e54346; color: #fff; }
+    .modal-actions .btn-cancel { background: #f0f0f0; color: #333; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <top></top>
+  <div class="history-container">
+    <!-- 空状态 -->
+    <div v-if="!loading && list.length === 0" class="empty-state">
+      <div class="empty-icon">🕑</div>
+      <div class="empty-text">暂无浏览记录</div>
+      <a href="/">去逛逛</a>
+    </div>
+
+    <!-- 浏览记录列表 -->
+    <template v-if="list.length > 0">
+      <div class="history-header">
+        <h2>浏览记录</h2>
+        <div class="header-actions">
+          <button class="btn btn-danger" @click="confirmClearAll">清空全部</button>
+        </div>
+      </div>
+      <div class="history-list">
+        <!-- 工具栏 -->
+        <div class="history-toolbar">
+          <label>
+            <input type="checkbox" :checked="allChecked" @change="toggleAll($event)"> 全选
+          </label>
+          <span class="selected-count" v-if="selectedIds.length > 0">已选 {{selectedIds.length}} 项</span>
+          <button class="btn btn-danger" @click="confirmBatchDelete" :disabled="selectedIds.length === 0">批量删除</button>
+        </div>
+        <!-- 记录列表 -->
+        <div class="history-item" v-for="item in list" :key="item.id">
+          <div class="item-check">
+            <input type="checkbox" :value="item.id" v-model="selectedIds">
+          </div>
+          <div class="item-img" @click="goDetail(item.itemId)">
+            <img :src="item.itemImage || './img/shop-default.png'" :alt="item.itemName">
+          </div>
+          <div class="item-info" @click="goDetail(item.itemId)">
+            <div class="item-name">{{item.itemName || '商品已下架'}}</div>
+            <div class="item-meta">
+              <span v-if="item.category">分类：{{item.category}}</span>
+              <span v-if="item.shopName">店铺：{{item.shopName}}</span>
+            </div>
+            <div class="item-tags">
+              <span class="tag" v-if="item.viewSource">来源：{{sourceText(item.viewSource)}}</span>
+            </div>
+          </div>
+          <div class="item-price" v-if="item.itemPrice != null">
+            <span class="yen">￥</span>{{formatPrice(item.itemPrice)}}
+          </div>
+          <div class="item-price" v-else style="color:#999;">-</div>
+          <div class="item-view-count">
+            浏览 <span class="count">{{item.viewCount}}</span> 次
+          </div>
+          <div class="item-time">{{formatTime(item.lastViewedAt)}}</div>
+          <div class="item-delete">
+            <button @click="deleteOne(item.id)">删除</button>
+          </div>
+        </div>
+      </div>
+      <!-- 分页 -->
+      <div class="pagination" v-if="pages > 1">
+        <span>共 {{total}} 条 / 共 {{pages}} 页</span>
+        <a :class="{disabled: pageNo<=1}" href="javascript:void(0)" @click="pageNo>1 && loadList(pageNo-1)">上一页</a>
+        <a v-for="p in pageNumbers" :key="p" :class="{active: p === pageNo}" href="javascript:void(0)" @click="loadList(p)">{{p}}</a>
+        <a :class="{disabled: pageNo>=pages}" href="javascript:void(0)" @click="pageNo<pages && loadList(pageNo+1)">下一页</a>
+      </div>
+    </template>
+
+    <!-- 清空确认弹窗 -->
+    <div class="modal-mask" v-if="showClearModal" @click.self="showClearModal=false">
+      <div class="modal-box">
+        <h3>确认清空</h3>
+        <p>确定要清空所有浏览记录吗？此操作不可恢复。</p>
+        <div class="modal-actions">
+          <button class="btn-confirm" @click="clearAll">确定清空</button>
+          <button class="btn-cancel" @click="showClearModal=false">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量删除确认弹窗 -->
+    <div class="modal-mask" v-if="showBatchModal" @click.self="showBatchModal=false">
+      <div class="modal-box">
+        <h3>确认删除</h3>
+        <p>确定要删除选中的 {{selectedIds.length}} 条浏览记录吗？</p>
+        <div class="modal-actions">
+          <button class="btn-confirm" @click="batchDelete">确定删除</button>
+          <button class="btn-cancel" @click="showBatchModal=false">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./js/vue.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/common.js"></script>
+<script src="./js/top.js"></script>
+<script>
+new Vue({
+  el: "#app",
+  data: {
+    list: [],
+    total: 0,
+    pageNo: 1,
+    pageSize: 20,
+    pages: 0,
+    loading: true,
+    selectedIds: [],
+    showClearModal: false,
+    showBatchModal: false,
+  },
+  computed: {
+    allChecked: {
+      get() {
+        return this.list.length > 0 && this.selectedIds.length === this.list.length;
+      },
+      set() {}
+    },
+    pageNumbers() {
+      const arr = [];
+      const start = Math.max(1, this.pageNo - 2);
+      const end = Math.min(this.pages, this.pageNo + 2);
+      for (let i = start; i <= end; i++) arr.push(i);
+      return arr;
+    }
+  },
+  created() {
+    if (!util.isLogin()) {
+      location.href = './login.html';
+      return;
+    }
+    this.loadList(1);
+  },
+  methods: {
+    // 加载浏览记录列表
+    loadList(page) {
+      this.pageNo = page;
+      this.loading = true;
+      this.selectedIds = [];
+      axios.get('/browse-history/page', { params: { pageNo: this.pageNo, pageSize: this.pageSize } }).then(res => {
+        this.list = (res && res.list) || [];
+        this.total = (res && res.total) || 0;
+        this.pages = (res && res.pages) || 0;
+      }).catch(() => {
+        this.list = [];
+      }).then(() => {
+        this.loading = false;
+      });
+    },
+    // 全选/取消全选
+    toggleAll(e) {
+      if (e.target.checked) {
+        this.selectedIds = this.list.map(i => i.id);
+      } else {
+        this.selectedIds = [];
+      }
+    },
+    // 跳转商品详情
+    goDetail(itemId) {
+      if (itemId) location.href = './item-detail.html?id=' + itemId;
+    },
+    // 删除单条
+    deleteOne(id) {
+      axios.delete('/browse-history/' + id).then(() => {
+        util.toast('删除成功', 'success');
+        // 删除后若当前页空了则回退一页
+        if (this.list.length <= 1 && this.pageNo > 1) {
+          this.loadList(this.pageNo - 1);
+        } else {
+          this.loadList(this.pageNo);
+        }
+      }).catch(() => {
+        util.toast('删除失败', 'error');
+      });
+    },
+    // 弹出批量删除确认
+    confirmBatchDelete() {
+      if (this.selectedIds.length === 0) return;
+      this.showBatchModal = true;
+    },
+    // 批量删除
+    batchDelete() {
+      this.showBatchModal = false;
+      axios.delete('/browse-history/batch', { data: { ids: this.selectedIds } }).then(() => {
+        util.toast('批量删除成功', 'success');
+        if (this.list.length === this.selectedIds.length && this.pageNo > 1) {
+          this.loadList(this.pageNo - 1);
+        } else {
+          this.loadList(this.pageNo);
+        }
+      }).catch(() => {
+        util.toast('批量删除失败', 'error');
+      });
+    },
+    // 弹出清空确认
+    confirmClearAll() {
+      this.showClearModal = true;
+    },
+    // 清空所有
+    clearAll() {
+      this.showClearModal = false;
+      axios.delete('/browse-history/clear').then(() => {
+        util.toast('已清空所有浏览记录', 'success');
+        this.loadList(1);
+      }).catch(() => {
+        util.toast('清空失败', 'error');
+      });
+    },
+    // 价格格式化（分转元）
+    formatPrice(val) {
+      return util.formatPrice(val);
+    },
+    // 浏览来源中文映射
+    sourceText(s) {
+      return { search: '搜索', recommend: '推荐', ai_outfit: 'AI搭配', shop: '店铺', direct: '直接访问' }[s] || s || '-';
+    },
+    // 时间格式化
+    formatTime(t) {
+      if (!t) return '-';
+      // 兼容后端返回的 LocalDateTime 序列化字符串
+      return String(t).replace('T', ' ').substring(0, 16);
+    }
+  }
+});
+</script>
+</body>
+</html>

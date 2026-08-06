@@ -42,4 +42,39 @@ public interface MqConstants {
     String SECKILL_COUPON_EXPIRE_DELAY_EXCHANGE = "seckill.coupon.expire.delay.direct";
     String SECKILL_COUPON_EXPIRE_DELAY_QUEUE_NAME = "seckill.coupon.expire.delay.queue";
     String SECKILL_COUPON_EXPIRE_DELAY_KEY = "seckill.coupon.expire.delay";
+
+    // ===== AI 功能 MQ =====
+    /** AI 随心搭结果回流（Python → Java user-service 消费，做配额确认/回滚） */
+    String AI_OUTFIT_EXCHANGE = "ai.outfit.exchange";
+    String AI_OUTFIT_RESULT_QUEUE = "ai.outfit.result.queue";
+    String AI_OUTFIT_RESULT_KEY = "ai.outfit.result";
+
+    /** AI 模特图生成任务下发（Java item-service → Python ai-models 消费） */
+    String AI_MODEL_EXCHANGE = "ai.model.exchange";
+    String AI_MODEL_GENERATE_KEY = "ai.model.generate";
+    /** AI 模特图结果回流（Python → Java item-service 消费） */
+    String AI_MODEL_RESULT_QUEUE = "ai.model.result.queue";
+    String AI_MODEL_RESULT_KEY = "ai.model.result";
+
+    /** 商品库同步（Java item-service → Python ai-outfit 消费，写 Qdrant 向量库） */
+    String ITEM_SYNC_EXCHANGE = "item.sync.exchange";
+    String ITEM_SYNC_UPSERT_KEY = "item.upsert";
+    String ITEM_SYNC_DELETE_KEY = "item.delete";
+
+    // ===== 用户行为事件（Phase 2.5 个性化推荐画像数据源）=====
+    /** 用户行为事件 Exchange（Java item/cart/trade + Python ai-outfit → Python UserBehaviorConsumer 消费） */
+    String USER_BEHAVIOR_EXCHANGE = "user.behavior.exchange";
+    /** Routing Key 前缀，完整格式：user.behavior.{type}（如 user.behavior.ITEM_VIEW） */
+    String USER_BEHAVIOR_KEY_PREFIX = "user.behavior.";
+    /** 行为类型（用于拼接 routing key，OUTFIT_ACCEPT 由 Python 侧直接发送，Java 不引用） */
+    String BEHAVIOR_TYPE_ITEM_VIEW = "ITEM_VIEW";
+    String BEHAVIOR_TYPE_CART_ADD = "CART_ADD";
+    String BEHAVIOR_TYPE_ORDER_PLACE = "ORDER_PLACE";
+
+    // ===== AI 任务结果回流幂等 Redis Key 前缀 =====
+    /**
+     * AI 模特任务结果幂等 key 前缀（item-service AiTaskServiceImpl + AiTaskTimeoutScheduler 共用）
+     * 完整 key: ai:task:result:{taskId}，TTL 1 小时
+     */
+    String AI_TASK_RESULT_IDEMPOTENT_PREFIX = "ai:task:result:";
 }

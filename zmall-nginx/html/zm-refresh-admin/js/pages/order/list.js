@@ -65,6 +65,7 @@ Vue.component('order-list-page', {
                 <el-table-column label="商品信息" min-width="200">
                     <template slot-scope="scope">
                         <span>{{scope.row.itemName || '-'}}</span>
+                        <el-tag v-if="isItemDeleted(scope.row.itemName)" type="danger" size="mini" style="margin-left:6px;">商品已被删除</el-tag>
                         <span v-if="scope.row.itemCount"> ({{scope.row.itemCount}}件)</span>
                     </template>
                 </el-table-column>
@@ -96,12 +97,13 @@ Vue.component('order-list-page', {
         </div>
 
         <!-- 订单详情弹窗 -->
-        <el-dialog title="订单详情" :visible.sync="detailVisible" width="700px">
+        <el-dialog title="订单详情" :visible.sync="detailVisible" width="780px">
             <div class="order-detail" v-if="currentOrder">
                 <div class="detail-row"><div class="detail-label">订单号：</div><div class="detail-value">{{currentOrder.id}}</div></div>
                 <div class="detail-row"><div class="detail-label">下单用户：</div><div class="detail-value">{{currentOrder.userId}}</div></div>
                 <div class="detail-row"><div class="detail-label">订单状态：</div><div class="detail-value"><el-tag :type="statusTagType(currentOrder.status)" size="small">{{statusText(currentOrder.status)}}</el-tag></div></div>
                 <div class="detail-row"><div class="detail-label">订单金额：</div><div class="detail-value" style="color:#e54346;font-weight:bold;">&yen;{{formatMoney(currentOrder.totalFee)}}</div></div>
+                <div class="detail-row" v-if="currentOrder.postFee != null"><div class="detail-label">运费：</div><div class="detail-value" style="color:#27ae60;">&yen;{{formatMoney(currentOrder.postFee)}}（商家承担）</div></div>
                 <div class="detail-row"><div class="detail-label">下单时间：</div><div class="detail-value">{{formatDate(currentOrder.createTime || currentOrder.createdTime)}}</div></div>
                 <div class="detail-row"><div class="detail-label">支付时间：</div><div class="detail-value">{{formatDate(currentOrder.payTime || currentOrder.paymentTime)}}</div></div>
                 <div class="detail-row" v-if="currentOrder.consignTime"><div class="detail-label">发货时间：</div><div class="detail-value">{{formatDate(currentOrder.consignTime)}}</div></div>
@@ -109,16 +111,73 @@ Vue.component('order-list-page', {
                 <el-divider></el-divider>
                 <h4 style="margin-bottom:10px;">商品列表</h4>
                 <el-table :data="currentOrder.orderDetails || []" border size="small">
-                    <el-table-column prop="name" label="商品名称" min-width="150"></el-table-column>
-                    <el-table-column prop="price" label="单价" width="100" align="center">
+                    <el-table-column label="商品名称" min-width="150">
+                        <template slot-scope="scope">
+                            <span>{{scope.row.name}}</span>
+                            <el-tag v-if="isItemDeleted(scope.row.name)" type="danger" size="mini" style="margin-left:6px;">商品已被删除</el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="price" label="售价" width="100" align="center">
                         <template slot-scope="scope">&yen;{{formatMoney(scope.row.price)}}</template>
+                    </el-table-column>
+                    <el-table-column prop="costPrice" label="成本价" width="100" align="center" v-if="currentOrder.orderDetails && currentOrder.orderDetails[0] && currentOrder.orderDetails[0].costPrice != null">
+                        <template slot-scope="scope">&yen;{{formatMoney(scope.row.costPrice)}}</template>
                     </el-table-column>
                     <el-table-column prop="num" label="数量" width="80" align="center"></el-table-column>
                     <el-table-column label="小计" width="100" align="center">
                         <template slot-scope="scope">&yen;{{formatMoney(scope.row.price * scope.row.num)}}</template>
                     </el-table-column>
                 </el-table>
+                <!-- 物流信息 -->
+                <template v-if="currentOrder.logistics">
+                    <el-divider></el-divider>
+                    <h4 style="margin-bottom:10px;">物流信息</h4>
+                    <div class="detail-row" v-if="currentOrder.logistics.logisticsCompany"><div class="detail-label">物流公司：</div><div class="detail-value">{{currentOrder.logistics.logisticsCompany}}</div></div>
+                    <div class="detail-row" v-if="currentOrder.logistics.logisticsNumber"><div class="detail-label">物流单号：</div><div class="detail-value">{{currentOrder.logistics.logisticsNumber}}</div></div>
+                    <div class="detail-row" v-if="currentOrder.logistics.trackingUrl"><div class="detail-label">追踪链接：</div><div class="detail-value"><a :href="currentOrder.logistics.trackingUrl" target="_blank" style="color:#409eff;">查看物流</a></div></div>
+                    <div class="detail-row" v-if="currentOrder.logistics.shipFromText"><div class="detail-label">发货地：</div><div class="detail-value">{{currentOrder.logistics.shipFromText}}</div></div>
+                    <div class="detail-row" v-if="currentOrder.logistics.weight"><div class="detail-label">包裹重量：</div><div class="detail-value">{{currentOrder.logistics.weight}} 克</div></div>
+                    <div class="detail-row" v-if="currentOrder.logistics.shippingFee != null"><div class="detail-label">运费：</div><div class="detail-value" style="color:#27ae60;">&yen;{{formatMoney(currentOrder.logistics.shippingFee)}}</div></div>
+                    <div class="detail-row" v-if="currentOrder.logistics.contact"><div class="detail-label">收件人：</div><div class="detail-value">{{currentOrder.logistics.contact}} {{currentOrder.logistics.mobile}}</div></div>
+                    <div class="detail-row" v-if="currentOrder.logistics.province"><div class="detail-label">收货地址：</div><div class="detail-value">{{currentOrder.logistics.province}} {{currentOrder.logistics.city}} {{currentOrder.logistics.town}} {{currentOrder.logistics.street}}</div></div>
+                </template>
             </div>
+        </el-dialog>
+
+        <!-- 发货弹窗（填写物流信息） -->
+        <el-dialog title="订单发货" :visible.sync="shipVisible" width="500px" :close-on-click-modal="false">
+            <el-form :model="shipForm" label-width="100px" size="small">
+                <el-form-item label="订单号">
+                    <span style="color:#909399;">{{shipForm.orderId}}</span>
+                </el-form-item>
+                <el-form-item label="物流公司">
+                    <el-select v-model="shipForm.logisticsCompany" placeholder="选择或输入物流公司" filterable allow-create default-first-option style="width:100%">
+                        <el-option label="顺丰速运" value="顺丰速运"></el-option>
+                        <el-option label="中通快递" value="中通快递"></el-option>
+                        <el-option label="圆通速递" value="圆通速递"></el-option>
+                        <el-option label="韵达快递" value="韵达快递"></el-option>
+                        <el-option label="申通快递" value="申通快递"></el-option>
+                        <el-option label="百世快递" value="百世快递"></el-option>
+                        <el-option label="京东物流" value="京东物流"></el-option>
+                        <el-option label="EMS" value="EMS"></el-option>
+                        <el-option label="DHL" value="DHL"></el-option>
+                        <el-option label="FedEx" value="FedEx"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="物流单号">
+                    <el-input v-model="shipForm.logisticsNumber" placeholder="请输入物流单号"></el-input>
+                </el-form-item>
+                <el-form-item label="追踪链接">
+                    <el-input v-model="shipForm.trackingUrl" placeholder="可选，国际物流常用URL追踪"></el-input>
+                </el-form-item>
+                <div style="margin:8px 0 0 100px;color:#909399;font-size:12px;">
+                    不填物流信息将走"模拟发货"流程（直接到货）。填写后物流记录将同步更新。
+                </div>
+            </el-form>
+            <span slot="footer">
+                <el-button @click="shipVisible=false">取 消</el-button>
+                <el-button type="primary" @click="submitShip" :loading="shipLoading">确认发货</el-button>
+            </span>
         </el-dialog>
 
         <!-- 销售趋势与热销商品 -->
@@ -144,7 +203,10 @@ Vue.component('order-list-page', {
             search: { orderId: '', status: null },
             orderStats: { todayNew: 0, pendingShip: 0, shipped: 0, refunding: 0 },
             detailVisible: false,
-            currentOrder: null
+            currentOrder: null,
+            shipVisible: false,
+            shipLoading: false,
+            shipForm: { orderId: null, logisticsCompany: '', logisticsNumber: '', trackingUrl: '' }
         };
     },
     computed: {
@@ -184,6 +246,10 @@ Vue.component('order-list-page', {
             const map = { 1: 'warning', 2: 'danger', 3: '', 4: 'success', 5: 'info', 6: 'success', 7: 'warning', 8: 'danger' };
             return map[s] || '';
         },
+        // 判断商品是否已被物理删除（后端在商品删除时会把 order_detail.name 改写为"【原商品名】商品已删除"）
+        isItemDeleted(name) {
+            return !!name && name.indexOf('】商品已删除') >= 0;
+        },
         loadList() {
             this.loading = true;
             ZM.http.get('/orders/merchant/page', { params: { page: 1, size: 99999 } }).then(res => {
@@ -201,10 +267,10 @@ Vue.component('order-list-page', {
             ZM.http.get('/orders/merchant/stats').then(res => {
                 if (res) {
                     this.orderStats = {
-                        total: res.todayNew || 0,
+                        todayNew: res.todayNew || 0,
                         pendingShip: res.pendingShip || 0,
                         shipped: res.shipped || 0,
-                        completed: res.refunding || 0
+                        refunding: res.refunding || 0
                     };
                 }
             }).catch(() => {});
@@ -223,21 +289,39 @@ Vue.component('order-list-page', {
             });
         },
         handleShip(row) {
-            this.$confirm('确定要发货吗？', '提示', { type: 'warning' }).then(() => {
-                ZM.http.put('/orders/merchant/' + row.id + '/ship').then(() => {
+            this.shipForm = {
+                orderId: row.id,
+                logisticsCompany: '',
+                logisticsNumber: '',
+                trackingUrl: ''
+            };
+            this.shipVisible = true;
+        },
+        submitShip() {
+            // 物流公司与单号必须成对填写
+            const hasCompany = !!this.shipForm.logisticsCompany;
+            const hasNumber = !!this.shipForm.logisticsNumber;
+            if (hasCompany !== hasNumber) {
+                this.$message.warning('物流公司与物流单号需同时填写，或同时留空走模拟发货');
+                return;
+            }
+            this.$confirm('确认发货？填写了物流信息将同步到物流记录', '提示', { type: 'warning' }).then(() => {
+                this.shipLoading = true;
+                const body = {
+                    logisticsCompany: this.shipForm.logisticsCompany || null,
+                    logisticsNumber: this.shipForm.logisticsNumber || null,
+                    trackingUrl: this.shipForm.trackingUrl || null
+                };
+                ZM.http.put('/orders/merchant/' + this.shipForm.orderId + '/ship', body).then(() => {
+                    this.shipLoading = false;
+                    this.shipVisible = false;
                     this.$message.success('发货成功');
                     this.loadList();
                     this.loadStats();
-                }).catch(() => { this.$message.error('发货失败'); });
-            }).catch(() => {});
-        },
-        handleRefund(row) {
-            this.$confirm('确定要退款吗？退款后不可撤销', '提示', { type: 'warning' }).then(() => {
-                ZM.http.put('/orders/merchant/' + row.id + '/refund').then(() => {
-                    this.$message.success('退款成功');
-                    this.loadList();
-                    this.loadStats();
-                }).catch(() => { this.$message.error('退款失败'); });
+                }).catch(() => {
+                    this.shipLoading = false;
+                    this.$message.error('发货失败');
+                });
             }).catch(() => {});
         },
         handleApproveReturn(row) {

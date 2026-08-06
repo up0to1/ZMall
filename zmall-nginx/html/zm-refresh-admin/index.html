@@ -54,6 +54,14 @@
                             </template>
                             <el-menu-item index="order-list">订单列表</el-menu-item>
                         </el-submenu>
+                        <el-submenu index="stats">
+                            <template slot="title">
+                                <i class="el-icon-data-line"></i>
+                                <span>数据统计</span>
+                            </template>
+                            <el-menu-item index="profit-stats">利润统计</el-menu-item>
+                            <el-menu-item index="ai-stats">AI 数据看板</el-menu-item>
+                        </el-submenu>
                         <el-submenu index="coupon">
                             <template slot="title">
                                 <i class="el-icon-ticket"></i>
@@ -84,6 +92,15 @@
                             <el-menu-item index="fans-list">粉丝列表</el-menu-item>
                             <el-menu-item index="fans-feed">推送管理</el-menu-item>
                         </el-submenu>
+                        <el-submenu index="ai-model">
+                            <template slot="title">
+                                <i class="el-icon-magic-stick"></i>
+                                <span>AI 模特图</span>
+                            </template>
+                            <el-menu-item index="ai-model-system-images">模特图池</el-menu-item>
+                            <el-menu-item index="ai-model-generate">生成模特图</el-menu-item>
+                            <el-menu-item index="ai-model-tasks">任务列表</el-menu-item>
+                        </el-submenu>
                         <el-submenu index="setting">
                             <template slot="title">
                                 <i class="el-icon-setting"></i>
@@ -110,6 +127,12 @@
                     <div v-if="currentMenu==='order-list'">
                         <order-list-page ref="orderList"></order-list-page>
                     </div>
+                    <div v-if="currentMenu==='profit-stats'">
+                        <profit-stats-page ref="profitStats"></profit-stats-page>
+                    </div>
+                    <div v-if="currentMenu==='ai-stats'">
+                        <ai-stats-page ref="aiStats"></ai-stats-page>
+                    </div>
                     <div v-if="currentMenu==='coupon-list'">
                         <coupon-list-page ref="couponList"></coupon-list-page>
                     </div>
@@ -127,6 +150,15 @@
                     </div>
                     <div v-if="currentMenu==='fans-feed'">
                         <feed-manage-page ref="feedManage"></feed-manage-page>
+                    </div>
+                    <div v-if="currentMenu==='ai-model-generate'">
+                        <ai-model-generate-page ref="aiModelGenerate"></ai-model-generate-page>
+                    </div>
+                    <div v-if="currentMenu==='ai-model-tasks'">
+                        <ai-model-tasks-page ref="aiModelTasks"></ai-model-tasks-page>
+                    </div>
+                    <div v-if="currentMenu==='ai-model-system-images'">
+                        <ai-model-system-images-page ref="aiModelSystemImages"></ai-model-system-images-page>
                     </div>
                     <div v-if="currentMenu==='shop-profile'">
                         <shop-profile-page ref="shopProfile"></shop-profile-page>
@@ -149,6 +181,8 @@
     <script src="js/pages/goods/stock.js"></script>
     <script src="js/pages/goods/category.js"></script>
     <script src="js/pages/order/list.js"></script>
+    <script src="js/pages/stats/profit.js"></script>
+    <script src="js/pages/stats/ai-stats.js"></script>
     <script src="js/pages/coupon/list.js"></script>
     <script src="js/pages/seckill/item.js"></script>
     <script src="js/pages/seckill/coupon.js"></script>
@@ -157,6 +191,15 @@
     <script src="js/pages/fans/feed.js"></script>
     <script src="js/pages/setting/profile.js"></script>
     <script src="js/pages/setting/password.js"></script>
+    <!-- AI 模特图：组件 + 页面 -->
+    <script src="js/components/ai-model-ws.js"></script>
+    <script src="js/components/rating-dialog.js"></script>
+    <script src="js/components/publish-dialog.js"></script>
+    <script src="js/components/reject-dialog.js"></script>
+    <script src="js/components/recharge-dialog.js"></script>
+    <script src="js/pages/ai-model/generate.js"></script>
+    <script src="js/pages/ai-model/tasks.js"></script>
+    <script src="js/pages/ai-model/system-images.js"></script>
 
     <script>
         if (!ZM.checkAuth()) { /* redirect in checkAuth */ }

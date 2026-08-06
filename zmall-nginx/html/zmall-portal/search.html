@@ -23,7 +23,6 @@
     <div class="banner">
       <a href="/">
         <div class="logo">
-          <!-- <img src="./img/logo.png" alt="1"/> -->
         </div>
       </a>
       <el-switch
@@ -117,7 +116,7 @@
           <span class="item-price" v-text="util.formatPrice(item.price)"></span>
         </div>
         <a :href="'/item-detail.html?id=' + item.id" style="text-decoration:none;color:inherit;">
-          <div class="item-name" v-html="item.name"></div>
+          <div class="item-name" v-html="sanitizeName(item.name)"></div>
         </a>
         <div v-if="shopMap[item.creater]" style="margin:4px 0;">
           <a :href="'/item-detail.html?id=' + item.id" style="text-decoration:none;color:#e54346;font-size:12px;">
@@ -243,6 +242,12 @@
       this.getFilter();
     },
     methods: {
+      // XSS 防护：先转义全部 HTML，再仅恢复 <em></em> 高亮标签
+      sanitizeName(name) {
+        if (!name) return '';
+        const escaped = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return escaped.replace(/&lt;em&gt;/g, '<em>').replace(/&lt;\/em&gt;/g, '</em>');
+      },
       handleSort(i){
         if(i === this.selectedSortItem){
           // 重复点击同一个排序项，则改变排序方式
@@ -259,24 +264,6 @@
           this.search();
           this.getFilter();
         }
-        /*if ((e.keyCode >= 48 && e.keyCode <= 57) || (e.keyCode >= 65 && e.keyCode <= 90) || e.keyCode === 8) {
-          // 用户输入的字符，需要自动补全
-          this.getSuggestion();
-        } else if (e.keyCode === 13) {
-          // 用户按回车，需要搜索
-          this.search();
-          this.getFilter();
-        } else if (e.keyCode === 38) {
-          if (this.opsIndex > 0) {
-            this.opsIndex--;
-          } else {
-            this.opsIndex = this.ops.length - 1;
-          }
-        } else if (e.keyCode === 40) {
-          this.opsIndex = (this.opsIndex + 1) % this.ops.length;
-        } else if (e.keyCode === 27) {
-          this.show = false
-        }*/
       },
       handleSearch(){
         this.search();
@@ -304,7 +291,7 @@
       getParams(){
         // 准备参数
         const {filters: {price: ps, ... fs}, ...params} = this.params;
-        for( _k in fs){
+        for (const _k of Object.keys(fs)) {
           params[_k] = fs[_k];
         }
         // 处理价格

@@ -3,8 +3,6 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=9; IE=8; IE=7; IE=EDGE">
-  <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
   <title>Michael杂货铺--登录页面</title>
 
   <link rel="stylesheet" type="text/css" href="./css/index.css"/>
@@ -25,7 +23,6 @@
   <div class="py-container logoArea">
     <div class="banner">
       <div class="logo">
-        <!-- <img src="./img/logo.png" alt="1"/> -->
       </div>
     </div>
   </div>
@@ -149,6 +146,18 @@
           .then(({token, ... user}) => {
             localStorage.setItem("token", token)
             util.store.set("user-info", user)
+            // 商家管理员直接跳转商家后台
+            if (user && user.role === 2) {
+              // 同步写入 admin 端所需的 localStorage 和 cookie，避免 checkAuth 拦截导致登录死循环
+              localStorage.setItem('zm-admin-token', token);
+              localStorage.setItem('zm-admin-user', JSON.stringify({
+                userId: user.userId, username: user.username, role: user.role
+              }));
+              document.cookie = 'zm_admin_token=' + encodeURIComponent(token) + ';path=/;max-age=86400';
+              const url = util.store.get("return-url");
+              window.location = url || '/zm-refresh-admin/index.html';
+              return;
+            }
             const url = util.store.get("return-url");
             window.location = url || '/';
           })

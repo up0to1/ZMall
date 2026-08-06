@@ -107,15 +107,7 @@ Vue.component('goods-stock-page', {
     computed: {
         stockTotalPages() { return Math.ceil(this.stockTotal / this.pageSize) || 1; }
     },
-    watch: {
-        currentPage(val) {
-            if (val > this.stockTotalPages) {
-                this.$nextTick(() => { this.currentPage = this.stockTotalPages; });
-            } else if (val < 1) {
-                this.$nextTick(() => { this.currentPage = 1; });
-            }
-        }
-    },
+    watch: {},
     mounted() {
         this.loadLowStock();
         this.loadStock();
@@ -151,6 +143,12 @@ Vue.component('goods-stock-page', {
                 this.stockList = data && data.list ? data.list : (Array.isArray(data) ? data : []);
                 this.stockTotal = data && data.total ? data.total : 0;
                 this.stockLoading = false;
+                // 边界检查：当前页超出总页数时回退到最后一页（防止越界后无法返回）
+                const tp = Math.ceil(this.stockTotal / this.pageSize) || 1;
+                if (this.currentPage > tp) {
+                    this.currentPage = tp;
+                    this.loadStock();
+                }
             }).catch(err => {
                 this.stockLoading = false;
                 const status = err.response && err.response.status;

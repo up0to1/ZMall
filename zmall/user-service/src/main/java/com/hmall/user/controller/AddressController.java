@@ -115,4 +115,17 @@ public class AddressController {
         addressService.lambdaUpdate().eq(Address::getId, id)
                 .set(Address::getIsDefault, 1).update();
     }
+
+    /**
+     * 内部接口：根据id查询地址（服务间调用，无需登录态校验）
+     * <p>供 trade-service 下单时查询收货地址使用
+     */
+    @GetMapping("/internal/{id}")
+    public AddressDTO findAddressByIdInternal(@PathVariable("id") Long id) {
+        Address address = addressService.getById(id);
+        if (address == null) {
+            return null;
+        }
+        return BeanUtils.copyBean(address, AddressDTO.class);
+    }
 }

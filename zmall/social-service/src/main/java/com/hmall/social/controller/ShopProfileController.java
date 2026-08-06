@@ -35,4 +35,10 @@ public class ShopProfileController {
     public String uploadLogo(@RequestParam("file") MultipartFile file) {
         return fileStorageStrategy.upload(file, "shop");
     }
+
+    @ApiOperation("根据用户ID查询店铺名（内部接口，供其他服务调用）")
+    @GetMapping("/shop-name")
+    public String getShopNameByUserId(@RequestParam("userId") Long userId) {
+        return shopProfileService.getShopNameByUserId(userId);
+    }
 }

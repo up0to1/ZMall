@@ -43,6 +43,11 @@ public class OrderDetail implements Serializable {
     private Long itemId;
 
     /**
+     * SKU ID（多SKU商品的具体规格组合；NULL=兼容旧数据）
+     */
+    private Long skuId;
+
+    /**
      * 购买数量
      */
     private Integer num;
@@ -53,19 +58,25 @@ public class OrderDetail implements Serializable {
     private String name;
 
     /**
-     * 商品动态属性键值集
-     */
-    private String spec;
-
-    /**
-     * 价格,单位：分
+     * 售价,单位：分
      */
     private Integer price;
+
+    /**
+     * 成本价快照（下单时从item表拷贝，单位：分，用于历史利润统计）
+     */
+    private Integer costPrice;
 
     /**
      * 商品图片
      */
     private String image;
+
+    /**
+     * 商家用户ID快照（下单时从 item.creater 拷贝）
+     * <p>用于商品物理删除后仍能按商家查询订单/统计利润
+     */
+    private Long merchantId;
 
     /**
      * 创建时间

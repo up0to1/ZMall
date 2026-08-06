@@ -36,18 +36,30 @@
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <script src="js/common.js"></script>
     <script>
-        // 如果已登录（localStorage和cookie都有有效token），直接跳转后台首页
-        // 只检查localStorage会导致循环：localStorage有token但cookie过期 → 跳index.html → auth_request失败 → 回login.html
+        // M12 修复：自动跳转前先调用后端 /users/verify 校验 token 有效性
+        // 避免仅靠 localStorage+cookie 存在就跳转，导致过期 token 在 index.html 触发 401 死循环
         (function() {
             var token = localStorage.getItem('zm-admin-token');
             var cookieToken = ZM.getCookie('zm_admin_token');
-            if (token && cookieToken) {
-                // 两边都有token，大概率仍有效，跳转主页
-                window.location.href = '/index.html';
-            } else if (token && !cookieToken) {
-                // localStorage有但cookie过期/缺失，清除无效登录信息
+            if (!token) return; // 未登录，留在登录页
+            if (!cookieToken) {
+                // cookie 缺失，无法通过 Nginx 代理的 API 鉴权，清除后留在登录页
                 ZM.clearLogin();
+                return;
             }
+            // 调用后端校验：200=有效商家 token，401=token 过期/无效，403=非商家
+            axios.get('/api/users/verify', {
+                headers: { 'authorization': 'Bearer ' + token }
+            }).then(function() {
+                // token 有效，跳转主页
+                window.location.href = '/index.html';
+            }).catch(function(err) {
+                // token 无效或非商家，清除登录信息后留在登录页
+                ZM.clearLogin();
+                if (err && err.response && err.response.status === 403) {
+                    console.warn('[login] 当前账号非商家，无法登录后台');
+                }
+            });
         })();
         new Vue({
             el: '#app',

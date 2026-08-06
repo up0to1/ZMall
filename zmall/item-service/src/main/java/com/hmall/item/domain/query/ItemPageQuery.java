@@ -20,4 +20,6 @@ public class ItemPageQuery extends PageQuery {
     private Integer minPrice;
     @ApiModelProperty("价格最大值")
     private Integer maxPrice;
+    @ApiModelProperty("商家用户ID（按店铺搜索单品时传，对应 item.creater）")
+    private Long creater;
 }

@@ -15,7 +15,7 @@ import java.util.List;
 @FeignClient(value = "trade-service", fallbackFactory = TradeClientFallbackFactory.class)
 public interface TradeClient {
 
-    @PutMapping("/orders/{orderId}")
+    @PutMapping("/orders/{orderId}/pay")
     void markOrderPaySuccess(@PathVariable("orderId") Long orderId);
 
     @GetMapping("/orders/merchant/page")
@@ -83,4 +83,19 @@ public interface TradeClient {
 
     @DeleteMapping("/seckill/admin/item/preheat/{itemId}")
     void clearPreheat(@PathVariable("itemId") Long itemId);
+
+    /**
+     * 服务间调用：查询用户所有已完成订单中的 item_id 去重列表
+     * 用于 US-AT-17 排除已购买的商品
+     */
+    @GetMapping("/orders/user/item-ids")
+    List<Long> queryUserOrderItemIds(@RequestParam("userId") Long userId);
+
+    /**
+     * 服务间调用：商品被物理删除时，标记所有引用该商品的 order_detail 快照
+     * <p>将 order_detail.name 改为 "【原商品名】商品已删除"，image 改为占位图。
+     * <p>路径 /orders/internal/item-deleted 已在网关层禁止外部访问。
+     */
+    @PostMapping("/orders/internal/item-deleted")
+    void markItemDeletedInOrders(@RequestBody ItemDeletedMessage msg);
 }

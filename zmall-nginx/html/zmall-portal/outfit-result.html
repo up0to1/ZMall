@@ -87,6 +87,17 @@
                   <div style="color:#999;font-size:12px;margin-top:2px;">
                     {{ it.category || '-' }} · {{ it.color || '-' }} · {{ it.shopName || '-' }}
                   </div>
+                  <div v-if="it.colorConstraintRelaxed || it.inventoryUnknown"
+                       style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;font-size:11px;">
+                    <span v-if="it.colorConstraintRelaxed"
+                          style="color:#b45309;background:#fff7ed;padding:2px 5px;border-radius:3px;">
+                      颜色候选不足，已放宽
+                    </span>
+                    <span v-if="it.inventoryUnknown"
+                          style="color:#1d4ed8;background:#eff6ff;padding:2px 5px;border-radius:3px;">
+                      库存待确认
+                    </span>
+                  </div>
                   <div style="color:#e54346;font-size:13px;font-weight:bold;margin-top:2px;">￥{{ formatPrice(it.price) }}</div>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0;">
@@ -103,6 +114,12 @@
               <span class="total-price">￥{{ formatPrice(sumPrice(o)) }}</span>
             </div>
             <div class="vton-watermark" v-if="o.isPartialFailure">⚠ 部分单品 VTON 失败，已用商品图兜底</div>
+            <div class="vton-watermark" v-if="o.vtonQualityStatus === 'warning'"
+                 style="color:#b45309;background:#fff7ed;padding:8px 10px;border-radius:4px;margin-top:8px;">
+              ⚠ {{ o.vtonWarning || '效果图可能未准确还原所选商品，请以商品图和商品信息为准。' }}
+              <div v-if="o.vtonQualityIssues && o.vtonQualityIssues.length"
+                   style="font-size:12px;margin-top:4px;">{{ o.vtonQualityIssues.join('；') }}</div>
+            </div>
           </div>
         </div>
       </div>

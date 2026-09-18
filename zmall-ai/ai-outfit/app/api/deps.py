@@ -7,6 +7,7 @@ Redis Key ai:photo:session:{userId} 与原 ai-models 保持一致，前端无感
 """
 import asyncio
 import logging
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -20,6 +21,7 @@ from shared.qdrant_client.user_preference import (
     UserPreferenceUpdater,
 )
 from shared.qdrant_client.user_episode import UserEpisodeStore
+from shared.qdrant_client.user_behavior import UserBehaviorIndexer
 from shared.model_client.vton_client import VtonClient
 from shared.model_client.gen_client import GenClient
 from shared.model_client.refiner_client import RefinerClient
@@ -152,6 +154,7 @@ async def get_user_preference_updater() -> UserPreferenceUpdater:
 
 # 用户搭配事件存储器（O3 优化：EpisodicMemory，跨会话记忆用户采纳的搭配）
 _user_episode_store: UserEpisodeStore | None = None
+_user_behavior_indexer: UserBehaviorIndexer | None = None
 
 
 async def get_user_episode_store() -> UserEpisodeStore:
@@ -169,6 +172,19 @@ async def get_user_episode_store() -> UserEpisodeStore:
                 _user_episode_store = UserEpisodeStore(_qdrant_wrapper)
                 await asyncio.to_thread(_user_episode_store.ensure_collection)
     return _user_episode_store
+
+
+async def get_user_behavior_indexer() -> UserBehaviorIndexer:
+    """获取行为记忆纠错器，复用 Qdrant 单例。"""
+    global _user_behavior_indexer
+    if _user_behavior_indexer is None:
+        if _qdrant_wrapper is None:
+            await get_qdrant_searcher()
+        async with _qdrant_lock:
+            if _user_behavior_indexer is None:
+                _user_behavior_indexer = UserBehaviorIndexer(_qdrant_wrapper)
+                await asyncio.to_thread(_user_behavior_indexer.ensure_collection)
+    return _user_behavior_indexer
 
 
 # ===== 模型客户端（单例）=====
@@ -197,6 +213,29 @@ async def get_vton_client() -> VtonClient:
                     oss_uploader=oss_uploader,
                 )
     return _vton_client
+
+
+# ===== VTON 输入图预处理与结果一致性审核（best-effort 单例）=====
+_vton_quality_service: Any | None = None
+_vton_quality_lock = asyncio.Lock()
+
+
+async def get_vton_quality_service() -> Any:
+    """获取商品单品图裁剪 / VTON 结果审核服务。"""
+    global _vton_quality_service
+    if _vton_quality_service is None:
+        async with _vton_quality_lock:
+            if _vton_quality_service is None:
+                # services 包当前会 eager-import AgentService；延迟导入避免与 deps 循环依赖。
+                from app.services.vton_quality_service import VtonQualityService
+
+                _vton_quality_service = VtonQualityService(
+                    api_url=settings.llm_api_url,
+                    api_key=settings.llm_api_key,
+                    vision_model=settings.llm_vision_model,
+                    proxy_url=settings.proxy_url,
+                )
+    return _vton_quality_service
 
 
 _embed_client: EmbedClient | None = None
@@ -290,6 +329,7 @@ async def get_llm_client() -> LlmClient:
                     model=settings.llm_model,                      # 向后兼容
                     text_model=settings.llm_text_model,            # 场景 A：qwen-flash
                     vision_model=settings.llm_vision_model,        # 场景 B：qwen3.5-flash
+                    proxy_url=settings.proxy_url,
                 )
     return _llm_client
 
@@ -362,6 +402,7 @@ async def close_all_clients():
     - UserPreferenceReader/Updater/EpisodeStore（复用 QdrantClientWrapper，无需单独释放）
     """
     global _vton_client, _gen_client, _refiner_client, _llm_client, _embed_client
+    global _vton_quality_service
     global _java_client, _nacos_discovery, _redis_pool, _mq_producer
 
     # 异步客户端（httpx.AsyncClient 等）
@@ -374,6 +415,13 @@ async def close_all_clients():
             except Exception as e:
                 logger.warning("关闭 %s 异常: %s", client_attr, e)
             globals()[client_attr] = None
+
+    if _vton_quality_service is not None:
+        try:
+            await _vton_quality_service.close()
+        except Exception as e:
+            logger.warning("关闭 VTON 质量服务异常: %s", e)
+        _vton_quality_service = None
 
     # Redis 连接池
     if _redis_pool is not None:

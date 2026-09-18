@@ -59,8 +59,8 @@ class Settings(BaseSettings):
     # 配置示例：http://192.168.59.128:18080（用户端 nginx）；留空时尝试走 Nacos 发现的 item-service URL 拼接
     nginx_external_base_url: str = ""
 
-    # ===== 图像向量编码（Jina CLIP v2）=====
-    # 默认 endpoint：https://api.jina.ai/v1/embeddings
+    # ===== 文本向量编码（阿里 DashScope text-embedding-v4）=====
+    # 留空时使用 EmbedClient 默认 endpoint；向量维度为 1024
     embed_api_url: str = ""
     embed_api_key: str = ""
 
@@ -110,10 +110,9 @@ class Settings(BaseSettings):
     # ===== 多轮反馈最大轮次（首轮 + 反馈轮，超限强制结束）=====
     feedback_max_rounds: int = 3
 
-    # ===== 代理（海外 API 走代理）=====
-    # Jina API 和 Qdrant Cloud 在海外，需要代理
-    # 阿里百炼/千问是国内服务，不走代理
-    # 留空则不启用代理
+    # ===== 外部 API 代理（可选）=====
+    # 配置后 LLM 与文本向量客户端会通过此代理访问模型服务（包括 DashScope）
+    # 留空则直连
     proxy_url: str = ""
 
     # ===== v6 工具拓展配置=====

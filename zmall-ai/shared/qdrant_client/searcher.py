@@ -9,6 +9,7 @@ import logging
 from qdrant_client.http.models import Filter, FieldCondition, MatchAny, MatchValue, Range
 
 from shared.qdrant_client.client import COLLECTION_ITEM_STYLE, QdrantClientWrapper
+from shared.qdrant_client.color_mapping import normalize_color_values
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class QdrantSearcher:
         target_gender: str | None = None,
         limit: int = 5,
         score_threshold: float | None = None,
+        strict_color: bool = False,
     ) -> list[dict]:
         """向量检索互补商品
 
@@ -54,8 +56,8 @@ class QdrantSearcher:
             query_vector: 查询向量（CLIP 1024维）
             shop_ids: 限定店铺列表（支持多选），None/空 则全平台
             category: 限定品类（英文枚举，如 tops/bottoms/shoes）
-            color: 偏好色调列表（中文，如 ['白色','蓝色']），作为 should 加权（非强制），
-                   偏好色商品优先返回但不排除其他颜色。None/空 则不限
+            color: 偏好色调列表（中文，如 ['白色','蓝色']）。默认用于扩大候选池后的软重排；
+                   strict_color=True 时作为硬过滤。None/空 则不限
             season: 限定季节（spring/summer/autumn/winter），
                     匹配 payload.season IN (season, "all")，None 则不限
             dislike_colors: 不喜欢的颜色列表（Qdrant must_not 过滤），
@@ -67,6 +69,8 @@ class QdrantSearcher:
             limit: 返回数量
             score_threshold: 相似度阈值。None 时读 settings.qdrant_score_threshold（默认 0.3），
                              避免原硬编码 0.5 偏严导致召回不足
+            strict_color: 是否将用户明确选择的颜色作为硬过滤。默认 False，
+                          画像推断颜色仍走软重排；候选不足时由上层显式降级为 False。
         Returns:
             商品列表 [{item_id, score, shop_id, category, color, season, style_tags,
                       price, stock, target_gender}, ...]
@@ -89,10 +93,6 @@ class QdrantSearcher:
             must_conditions.append(FieldCondition(key="shop_id", match=MatchAny(any=list(shop_ids))))
         if category is not None:
             must_conditions.append(FieldCondition(key="category", match=MatchValue(value=category)))
-        # 颜色偏好：should 加权（非强制），偏好色商品优先返回但不排除其他颜色
-        should_conditions: list[FieldCondition] = []
-        if color:
-            should_conditions.append(FieldCondition(key="color", match=MatchAny(any=list(color))))
         if season is not None:
             # 季节匹配：当前季节 或 全季可推（season="all"）
             must_conditions.append(FieldCondition(
@@ -108,6 +108,15 @@ class QdrantSearcher:
                 match=MatchAny(any=[target_gender, "unisex"]),
             ))
 
+        preferred_colors = set(normalize_color_values(color))
+        if strict_color and preferred_colors:
+            # 明确勾选的颜色先作为硬约束，避免“黑/白”被语义相似度带偏到卡其、灰色。
+            # 候选不足时由节点2再次以 strict_color=False 检索，保留可解释的放宽路径。
+            must_conditions.append(FieldCondition(
+                key="color",
+                match=MatchAny(any=list(preferred_colors)),
+            ))
+
         # 不喜欢的颜色 → must_not 排除
         must_not_conditions: list[FieldCondition] = []
         if dislike_colors:
@@ -116,14 +125,17 @@ class QdrantSearcher:
                 match=MatchAny(any=list(dislike_colors)),
             ))
 
+        # 颜色是软偏好而非硬条件。先取更大的语义候选池，再对命中偏好色的商品
+        # 做稳定重排，避免 should 过滤在无同色商品时把整类结果清空。
+        candidate_limit = max(limit * 5, 25) if preferred_colors else limit
         results = self.client.search(
             collection_name=COLLECTION_ITEM_STYLE,
             query_vector=query_vector,
-            query_filter=Filter(must=must_conditions, must_not=must_not_conditions, should=should_conditions if should_conditions else None),
-            limit=limit,
+            query_filter=Filter(must=must_conditions, must_not=must_not_conditions),
+            limit=candidate_limit,
             score_threshold=_resolve_score_threshold(score_threshold),
         )
-        return [
+        items = [
             {
                 "item_id": hit.payload.get("item_id"),
                 "score": hit.score,
@@ -138,3 +150,14 @@ class QdrantSearcher:
             }
             for hit in results
         ]
+        if preferred_colors:
+            def rerank_score(item: dict) -> float:
+                matched = preferred_colors.intersection(normalize_color_values(item.get("color")))
+                semantic_score = float(item.get("score") or 0.0)
+                return semantic_score + (0.05 if matched else 0.0)
+
+            items.sort(
+                key=rerank_score,
+                reverse=True,
+            )
+        return items[:limit]

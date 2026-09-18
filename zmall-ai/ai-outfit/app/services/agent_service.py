@@ -29,11 +29,16 @@ import redis.asyncio as aioredis
 
 from app.api.deps import (
     get_java_client, get_llm_client, get_mq_producer, get_redis,
+    get_user_behavior_indexer,
     get_user_preference_reader, get_user_preference_updater,
     get_user_episode_store,
     get_qdrant_searcher, get_embed_client,
 )
 from app.services.photo_session import PHOTO_SESSION_URL_PREFIX
+from app.services.task_checkpoint import (
+    build_task_checkpoint,
+    hydrate_task_checkpoint,
+)
 from app.core.config import settings
 from app.graphs.outfit_graph import OutfitGraphRunner
 from app.schemas.agent_state import AgentState
@@ -56,6 +61,7 @@ from shared.outfit_common import (
 )
 # 共享模块：品类中文↔英文映射
 from shared.qdrant_client.category_mapping import to_cn
+from shared.memory_policy import should_persist_preference
 # 共享模块：分布式锁（对齐 Java 侧 Redisson RLock，编程式 tryLock/unlock）
 from shared.distributed_lock import DistributedLock
 
@@ -102,9 +108,24 @@ TASK_STATUS_TTL = 3600  # 1 小时
 STATE_SNAPSHOT_PREFIX = "ai:outfit:state:"
 STATE_SNAPSHOT_TTL = 7 * 24 * 3600  # 7 天
 
+# 只允许基于当前 checkpoint 版本写入，避免旧的异步任务结果覆盖新状态。
+# Redis Lua 保证"检查版本 + 写入 + 刷新 TTL"是一个原子操作。
+_CHECKPOINT_CAS_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current then
+    local decoded = cjson.decode(current)
+    local current_version = tonumber(decoded['checkpoint_version'] or 0)
+    if current_version ~= tonumber(ARGV[1]) then
+        return 0
+    end
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+return 1
+"""
+
 # O4 优化：seen_item_ids 跨会话持久化 Key 前缀和 TTL
 # 业务价值：避免用户下次回来又看到上次推荐过的商品；30 天后自动衰减，商品可重推
-# 存储：JSON dict {item_id: iso_timestamp}，首轮加载时过滤 30 天前的记录
+# 存储：Redis ZSet，member=item_id，score=最近展示时间戳；按商品粒度衰减
 SEEN_ITEMS_PREFIX = "ai:outfit:seen:"
 SEEN_ITEMS_TTL = 30 * 24 * 3600  # 30 天
 
@@ -142,16 +163,6 @@ CREDITS_DIRECT_TOTAL = CREDITS_RECOMMEND + CREDITS_VTON_PER_OUTFIT * 3  # 17
 
 # "换一套"会话计数已下沉到 shared.outfit_common（与 ai-models 商品驱动模式共用同一实现）
 # 调用 incr_and_get_old_count / should_deduct / decr_session_count 即可
-
-# state 持久化时需要剥离的字段（bytes 不可 JSON 序列化，每轮重新加载）
-# _prev_style_tags_for_query 是 list[str] 完全可 JSON 序列化，不需剥离。
-# _main_item_bytes 是 bytes（主商品图），不可持久化，反馈轮重新下载
-_STATE_NON_PERSIST_FIELDS = frozenset({
-    "user_photo",            # bytes，节点1 每轮从 Redis 会话级加载
-    "generated_images",      # list[bytes|None]，每轮重新生成
-    "_main_item_bytes",      # bytes，节点1 反馈轮重新下载主商品图
-})
-
 
 class AgentService:
     """U1 统一架构编排服务（商品驱动 + 风格驱动）
@@ -437,7 +448,7 @@ class AgentService:
               - 轮次超限：(taskId, "已达到最大反馈轮次", "ROUND_LIMIT")
         """
         # 1. 读取历史 state
-        prev_state = await self._load_state(task_id)
+        prev_state = await self._load_state(task_id, expected_user_id=user_id)
         if prev_state is None:
             # DB 兜底：Redis state 过期，从 DB 搭配记录反向构造降级 state
             # 降级限制：丢失 query_vector / candidate_items_by_category / seen_item_ids 等，
@@ -474,7 +485,7 @@ class AgentService:
                 return task_id, "正在处理上一条反馈，请稍候", "CONCURRENT"
 
             # 锁内双重检查
-            prev_state = await self._load_state(task_id)
+            prev_state = await self._load_state(task_id, expected_user_id=user_id)
             if prev_state is None:
                 # DB 兜底（与锁外一致）
                 prev_state = await self._build_fallback_state_from_db(
@@ -527,6 +538,9 @@ class AgentService:
                 "createdAt": datetime.now().isoformat(),
             }, ensure_ascii=False)
             await self.redis.set(f"{TASK_STATUS_PREFIX}{task_id}", status, ex=TASK_STATUS_TTL)
+
+        # 用户画像不写入任务快照，启动反馈工作流前从长期画像重新加载
+        prev_state = await self._restore_feedback_runtime(prev_state, user_id)
 
         # 5. 启动异步反馈任务
         task = asyncio.create_task(self._async_feedback_product(
@@ -652,9 +666,14 @@ class AgentService:
             # 提取 dislike_styles 和 preferred_price_range
             new_dislike_styles: list[str] = list(parsed.get("dislike_styles") or [])
             new_price_range = parsed.get("preferred_price_range") or None
+            allow_long_term_memory = should_persist_preference(
+                feedback,
+                note,
+                explicit_user_field=dislike_colors is not None,
+            )
 
             # 异步持久化用户偏好（dislike_colors / dislike_styles / preferred_price_range）
-            if new_dislike_colors or new_dislike_styles or new_price_range:
+            if allow_long_term_memory and (new_dislike_colors or new_dislike_styles or new_price_range):
                 pref_task = asyncio.create_task(self._persist_user_preference(
                     user_id=user_id,
                     dislike_colors=new_dislike_colors or None,
@@ -712,6 +731,9 @@ class AgentService:
                     keep_categories=keep_categories,
                     merged_dislike_colors=merged_dislike_colors,
                 )
+
+            # 反馈任务使用锁内推进后的 checkpoint 版本，避免异步结果覆盖后续反馈。
+            initial_state["checkpoint_version"] = prev_state.get("checkpoint_version", 0)
 
             # ----- 6. 跑 LangGraph 工作流 -----
             # 全局并发槽位：限制同时运行的生成工作流数量
@@ -1352,7 +1374,20 @@ class AgentService:
             # 构造首轮 initial_state（含结构化输入字段 + 用户偏好）
             # O3 优化：EpisodicMemory - 读取用户最近搭配事件，作为"上次推荐回顾"
             # 传到 state 供节点3 LLM prompt 使用，提升复购率
-            recent_episodes = await self._load_recent_episodes(user_id)
+            current_month = datetime.now().month
+            current_season = (
+                "spring" if current_month in (3, 4, 5)
+                else "summer" if current_month in (6, 7, 8)
+                else "autumn" if current_month in (9, 10, 11)
+                else "winter"
+            )
+            recent_episodes = await self._load_recent_episodes(
+                user_id,
+                style_tags=merged_style_tags,
+                scene_desc=scene_desc,
+                season=current_season,
+                categories=categories or [],
+            )
 
             # O4 优化：加载跨会话 seen_item_ids（30 天衰减）
             # 业务价值：避免用户下次回来又看到上次推荐过的商品；30 天前的自动过期
@@ -1368,6 +1403,7 @@ class AgentService:
                 "scene_desc": scene_desc,
                 "photo_session_key": photo_session_key,
                 "color": color,
+                "color_is_explicit": bool(color),
                 "categories": categories or [],
                 "shop_ids": shop_ids,
                 "note": note,
@@ -1556,8 +1592,11 @@ class AgentService:
 
             # O4 优化：跨会话持久化 seen_item_ids（30 天衰减）
             final_seen = final_state.get("seen_item_ids") or set()
-            if final_seen:
-                await self._save_cross_session_seen_items(user_id, final_seen)
+            displayed_ids = self._extract_displayed_item_ids(final_state)
+            if final_seen and displayed_ids:
+                await self._save_cross_session_seen_items(
+                    user_id, final_seen, refresh_item_ids=displayed_ids,
+                )
             self._record_workflow_metrics(start_time, "SUCCESS")
 
         except WorkflowBusyError as e:
@@ -2070,7 +2109,7 @@ class AgentService:
                 return task_id, "正在处理采纳请求，请稍候", "CONCURRENT"
 
             # 1. 读取阶段二 state 快照
-            state = await self._load_state(task_id)
+            state = await self._load_state(task_id, expected_user_id=user_id)
             db_record_fallback: dict | None = None  # DB 兜底记录
             if state is None:
                 # 兜底1：从 task status 读 final_outfits（state 快照可能已过期）
@@ -3082,33 +3121,49 @@ class AgentService:
     # 多轮反馈
     # ============================================================
 
-    async def _save_state(self, task_id: str, state: dict) -> None:
-        """持久化 LangGraph state 快照到 Redis（供多轮反馈读取）
+    async def _save_state(self, task_id: str, state: dict) -> bool:
+        """持久化可恢复的任务 checkpoint 到 Redis（供多轮反馈读取）。
 
-        清洗策略：
-        - 移除 bytes 字段（user_photo / generated_images，每轮重新加载）
-        - 移除内部临时字段（_prev_style_tags_for_query）
-        - seen_item_ids: set → list（JSON 不支持 set）
-        - query_vector: list[float] 可直接序列化
+        这里只保存任务上下文，不再保存完整 LangGraph runtime state：
+        - 图片、生成结果、画像、事件、天气和临时候选池由其它存储或下一轮重建；
+        - checkpoint_version 通过 Redis Lua CAS 递增，拒绝旧异步任务的过期写入；
+        - 返回 False 表示版本冲突或写入失败，调用方仍可继续主流程，MySQL 负责结果兜底。
         """
         try:
-            snapshot = {
-                k: v for k, v in state.items()
-                if k not in _STATE_NON_PERSIST_FIELDS
-            }
-            # set → list
-            if "seen_item_ids" in snapshot and isinstance(snapshot["seen_item_ids"], set):
-                snapshot["seen_item_ids"] = list(snapshot["seen_item_ids"])
-            await self.redis.set(
-                f"{STATE_SNAPSHOT_PREFIX}{task_id}",
-                json.dumps(snapshot, ensure_ascii=False),
-                ex=STATE_SNAPSHOT_TTL,
+            current_version = int(state.get("checkpoint_version", 0) or 0)
+            next_version = current_version + 1
+            snapshot = build_task_checkpoint(state, version=next_version)
+            payload = json.dumps(snapshot, ensure_ascii=False)
+            key = f"{STATE_SNAPSHOT_PREFIX}{task_id}"
+            written = await self.redis.eval(
+                _CHECKPOINT_CAS_SCRIPT,
+                1,
+                key,
+                current_version,
+                payload,
+                STATE_SNAPSHOT_TTL,
             )
-            logger.info("state 快照已保存: taskId=%s, round=%s, fields=%d",
-                         task_id, snapshot.get("round", 1), len(snapshot))
+            if not written:
+                logger.warning(
+                    "checkpoint 版本冲突，跳过旧状态写入: taskId=%s, expected=%s",
+                    task_id,
+                    current_version,
+                )
+                return False
+            # 让当前异步流程继续携带最新版本，后续保存可以安全 CAS。
+            state["checkpoint_version"] = next_version
+            logger.info(
+                "任务 checkpoint 已保存: taskId=%s, round=%s, version=%s, fields=%s",
+                task_id,
+                snapshot.get("round", 1),
+                next_version,
+                len(snapshot),
+            )
+            return True
         except Exception as e:
-            # 保存失败不阻断主流程，仅记录日志（反馈功能将不可用）
-            logger.warning("state 快照保存失败: taskId=%s, error=%s", task_id, e)
+            # 保存失败不阻断主流程，后续反馈可从 MySQL 降级恢复。
+            logger.warning("任务 checkpoint 保存失败: taskId=%s, error=%s", task_id, e)
+            return False
 
     async def _load_state(self, task_id: str, expected_user_id: int | None = None) -> dict | None:
         """读取历史 state 快照（反馈轮用）
@@ -3132,13 +3187,32 @@ class AgentService:
                     logger.warning("IDOR 拦截: taskId=%s, expected_user_id=%s, actual_user_id=%s",
                                    task_id, expected_user_id, state_user_id)
                     return None
-            # list → set
-            if "seen_item_ids" in state and isinstance(state["seen_item_ids"], list):
-                state["seen_item_ids"] = set(state["seen_item_ids"])
-            return state
+            return hydrate_task_checkpoint(state)
         except Exception as e:
             logger.warning("state 快照解析失败: taskId=%s, error=%s", task_id, e)
             return None
+
+    async def _restore_feedback_runtime(self, state: dict, user_id: int) -> dict:
+        """恢复不会写入 task checkpoint 的运行时画像。
+
+        用户画像属于跨会话长期记忆，任务快照只保存可恢复的任务上下文。
+        反馈轮开始前重新读取画像，既保持个性化，又避免使用过期的画像副本。
+        画像服务不可用时按空画像继续，节点会自动走无画像降级路径。
+        """
+        if state.get("user_profile"):
+            return state
+        try:
+            from app.services.profile_service import get_profile_service
+
+            profile_service = await get_profile_service()
+            state["user_profile"] = await profile_service.get_or_load_profile(user_id)
+        except Exception as e:
+            logger.warning(
+                "反馈轮恢复用户画像失败（按空画像继续）: taskId=%s, userId=%s, error=%s",
+                state.get("task_id"), user_id, e,
+            )
+            state["user_profile"] = {}
+        return state
 
     async def _build_fallback_state_from_db(
         self, task_id: str, user_id: int, mode: str = "agent",
@@ -3447,7 +3521,14 @@ class AgentService:
         except Exception as e:
             logger.warning("[EpisodicMemory] 记录搭配事件失败（不影响主流程）: %s", e)
 
-    async def _load_recent_episodes(self, user_id: int) -> list[dict]:
+    async def _load_recent_episodes(
+        self,
+        user_id: int,
+        style_tags: list[str] | None = None,
+        scene_desc: str | None = None,
+        season: str | None = None,
+        categories: list[str] | None = None,
+    ) -> list[dict]:
         """O3 优化：读取用户最近的搭配事件（首轮推荐时调用）
 
         Returns:
@@ -3456,6 +3537,13 @@ class AgentService:
         try:
             episode_store = await get_user_episode_store()
             episodes = await asyncio.to_thread(episode_store.get_recent_episodes, user_id)
+            episodes = self._filter_relevant_episodes(
+                episodes,
+                style_tags=style_tags,
+                scene_desc=scene_desc,
+                season=season,
+                categories=categories,
+            )
             if episodes:
                 logger.info("[EpisodicMemory] 已加载历史搭配事件: userId=%s, count=%d",
                              user_id, len(episodes))
@@ -3464,53 +3552,155 @@ class AgentService:
             logger.warning("[EpisodicMemory] 加载历史搭配事件失败（不影响主流程）: %s", e)
             return []
 
-    async def _load_cross_session_seen_items(self, user_id: int) -> set[int]:
-        """O4 优化：从 Redis 加载跨会话 seen_item_ids（带 30 天衰减）
+    @staticmethod
+    def _filter_relevant_episodes(
+        episodes: list[dict],
+        style_tags: list[str] | None = None,
+        scene_desc: str | None = None,
+        season: str | None = None,
+        categories: list[str] | None = None,
+    ) -> list[dict]:
+        """过滤明显不相关的历史事件，避免把旧场景直接灌给 LLM。
 
-        业务价值：避免用户下次回来又看到上次推荐过的商品；30 天前的记录自动过滤，商品可重推。
-
-        Returns:
-            仍有效的 item_id 集合（30 天内推荐过的），失败返回空集合
+        事件记忆仍按最近时间读取，但当前季节冲突且风格、场景、品类都没有
+        重合时不召回；其余事件按相关性排序后最多保留 5 条。历史数据缺少
+        新字段时兼容为普通最近事件。
         """
-        try:
-            raw = await self.redis.get(f"{SEEN_ITEMS_PREFIX}{user_id}")
-            if not raw:
-                return set()
-            seen_dict = json.loads(raw)
-            # 过滤 30 天前的记录（按 timestamp 衰减）
-            cutoff = datetime.now().timestamp() - SEEN_ITEMS_TTL
-            fresh_ids = set()
-            for item_id, ts_str in seen_dict.items():
+        if not episodes:
+            return []
+
+        def terms(value) -> set[str]:
+            if isinstance(value, str):
+                return {part.strip().casefold() for part in value.replace("，", " ").split()
+                        if part.strip()}
+            if isinstance(value, (list, tuple, set)):
+                return {str(part).strip().casefold() for part in value if str(part).strip()}
+            return set()
+
+        current_styles = terms(style_tags)
+        current_scene = terms(scene_desc)
+        current_categories = terms(categories)
+        ranked: list[tuple[int, int, dict]] = []
+        for position, episode in enumerate(episodes):
+            if not isinstance(episode, dict):
+                continue
+            episode_styles = terms(episode.get("style_tags"))
+            episode_scene = terms(episode.get("scene_desc"))
+            episode_categories = terms([
+                item.get("category") for item in episode.get("accepted_items", [])
+                if isinstance(item, dict)
+            ])
+            score = 0
+            score += 3 * len(current_styles & episode_styles)
+            score += 2 * len(current_categories & episode_categories)
+            score += len(current_scene & episode_scene)
+            episode_season = episode.get("season")
+            season_conflict = bool(season and episode_season and season != episode_season)
+            if season_conflict and score == 0:
+                continue
+            if season and episode_season == season:
+                score += 2
+            ranked.append((score, -position, episode))
+
+        ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return [episode for _, _, episode in ranked[:5]]
+
+    @staticmethod
+    def _extract_displayed_item_ids(state: dict) -> set[int]:
+        """提取本轮真正展示的商品，用于刷新其去重时间。
+
+        不能把 state 中累积的全部 seen_item_ids 都重新写成当前时间，
+        否则每次推荐都会把历史商品的 30 天生命周期整体续期。
+        衣橱/主商品由用户明确选择，不应污染跨会话推荐去重池。
+        """
+        outfits = state.get("final_outfits") or state.get("outfit_candidates") or []
+        displayed: set[int] = set()
+        for outfit in outfits:
+            for item in (outfit or {}).get("items", []):
+                if item.get("isWardrobePicked") or item.get("_wardrobe_picked"):
+                    continue
+                if item.get("isMain"):
+                    continue
+                raw_id = item.get("itemId") or item.get("item_id")
                 try:
-                    ts = datetime.fromisoformat(ts_str).timestamp()
-                    if ts > cutoff:
-                        fresh_ids.add(int(item_id))
-                except (ValueError, TypeError):
-                    continue  # timestamp 解析失败，跳过该条
-            logger.info("[O4] 加载跨会话 seen_item_ids: userId=%s, total=%d, fresh=%d",
-                         user_id, len(seen_dict), len(fresh_ids))
-            return fresh_ids
+                    if raw_id is not None:
+                        displayed.add(int(raw_id))
+                except (TypeError, ValueError):
+                    continue
+        return displayed
+
+    async def _load_cross_session_seen_items(self, user_id: int) -> set[int]:
+        """从 Redis ZSet 加载跨会话去重记录，并按商品粒度清理过期成员。
+
+        兼容旧版本 JSON 字符串 key：读取到旧格式后转换为 ZSet，避免升级时丢失去重数据。
+        读取失败仍返回空集合，去重不是主推荐链路的硬依赖。
+        """
+        key = f"{SEEN_ITEMS_PREFIX}{user_id}"
+        cutoff = datetime.now().timestamp() - SEEN_ITEMS_TTL
+        try:
+            # 升级兼容：旧版本 key 是 string(JSON)，不能先执行 ZSet 命令，否则会触发 WRONGTYPE。
+            key_type = None
+            try:
+                key_type = await self.redis.type(key)
+            except Exception:
+                pass
+            if key_type in ("string", b"string"):
+                legacy_raw = await self.redis.get(key)
+                legacy = json.loads(legacy_raw) if legacy_raw else {}
+                migrated: dict[str, float] = {}
+                fresh_ids = set()
+                for item_id, ts_str in legacy.items():
+                    try:
+                        ts = datetime.fromisoformat(ts_str).timestamp()
+                        if ts > cutoff:
+                            item_id_int = int(item_id)
+                            fresh_ids.add(item_id_int)
+                            migrated[str(item_id_int)] = ts
+                    except (ValueError, TypeError):
+                        continue
+                if migrated:
+                    await self.redis.delete(key)
+                    await self.redis.zadd(key, migrated)
+                    await self.redis.expire(key, SEEN_ITEMS_TTL)
+                return fresh_ids
+
+            await self.redis.zremrangebyscore(key, "-inf", cutoff)
+            raw_ids = await self.redis.zrangebyscore(key, cutoff, "+inf")
+            if raw_ids:
+                fresh_ids = set()
+                for raw_id in raw_ids:
+                    try:
+                        fresh_ids.add(int(raw_id))
+                    except (TypeError, ValueError):
+                        continue
+                logger.info("[O4] 加载跨会话 seen_item_ids(ZSet): userId=%s, fresh=%d",
+                            user_id, len(fresh_ids))
+                return fresh_ids
+
+            return set()
         except Exception as e:
             logger.warning("[O4] 加载跨会话 seen_item_ids 失败（不影响主流程）: %s", e)
             return set()
 
     async def _save_cross_session_seen_items(
-        self, user_id: int, seen_item_ids: set[int],
+        self,
+        user_id: int,
+        seen_item_ids: set[int],
+        refresh_item_ids: set[int] | None = None,
     ) -> None:
-        """O4 优化：把 seen_item_ids 持久化到 Redis（跨会话，30 天 TTL）
-
-        所有 item_id 用当前 timestamp 更新（代表"最近推荐时间"）。
-        """
+        """以 ZSet 保存跨会话去重记录，只刷新本轮实际展示的商品时间。"""
+        key = f"{SEEN_ITEMS_PREFIX}{user_id}"
         try:
-            now_iso = datetime.now().isoformat()
-            seen_dict = {str(item_id): now_iso for item_id in seen_item_ids}
-            await self.redis.set(
-                f"{SEEN_ITEMS_PREFIX}{user_id}",
-                json.dumps(seen_dict, ensure_ascii=False),
-                ex=SEEN_ITEMS_TTL,
-            )
-            logger.info("[O4] 保存跨会话 seen_item_ids: userId=%s, count=%d",
-                         user_id, len(seen_dict))
+            now = datetime.now().timestamp()
+            cutoff = now - SEEN_ITEMS_TTL
+            await self.redis.zremrangebyscore(key, "-inf", cutoff)
+            refresh_ids = set(refresh_item_ids if refresh_item_ids is not None else seen_item_ids)
+            refresh_ids = {int(item_id) for item_id in refresh_ids if item_id is not None}
+            if refresh_ids:
+                await self.redis.zadd(key, {str(item_id): now for item_id in refresh_ids})
+                await self.redis.expire(key, SEEN_ITEMS_TTL)
+            logger.info("[O4] 保存跨会话 seen_item_ids(ZSet): userId=%s, refreshed=%d",
+                        user_id, len(refresh_ids))
         except Exception as e:
             logger.warning("[O4] 保存跨会话 seen_item_ids 失败（不影响主流程）: %s", e)
 
@@ -3578,7 +3768,7 @@ class AgentService:
               - 其他错误（解析失败/索引越界等）：异步阶段通过 task status 反馈
         """
         # 1. 读取历史 state
-        prev_state = await self._load_state(task_id)
+        prev_state = await self._load_state(task_id, expected_user_id=user_id)
         if prev_state is None:
             # DB 兜底：Redis state 过期（超过 7 天），从 DB 搭配记录反向构造降级 state
             # 降级限制：丢失 query_vector / candidate_items_by_category / seen_item_ids 等运行时状态，
@@ -3615,7 +3805,7 @@ class AgentService:
                 return task_id, "正在处理上一条反馈，请稍候", "CONCURRENT"
 
             # 锁内双重检查：可能在等待锁期间状态已被其他请求改变
-            prev_state = await self._load_state(task_id)
+            prev_state = await self._load_state(task_id, expected_user_id=user_id)
             if prev_state is None:
                 # DB 兜底（与锁外一致）
                 prev_state = await self._build_fallback_state_from_db(task_id, user_id)
@@ -3671,6 +3861,9 @@ class AgentService:
             }, ensure_ascii=False)
             await self.redis.set(f"{TASK_STATUS_PREFIX}{task_id}", status, ex=TASK_STATUS_TTL)
 
+        # 用户画像不写入任务快照，启动反馈工作流前从长期画像重新加载
+        prev_state = await self._restore_feedback_runtime(prev_state, user_id)
+
         # 4. 启动异步任务（ReAct 解析 + LangGraph 工作流全在内）
         task = asyncio.create_task(self._async_feedback(
             task_id=task_id,
@@ -3692,6 +3885,48 @@ class AgentService:
         logger.info("反馈任务已启动（异步）: taskId=%s, round=%d, note=%s",
                      task_id, new_round, note[:30] if note else None)
         return task_id, None, None
+
+    async def _supersede_disliked_item_behaviors(
+        self,
+        user_id: int,
+        item_ids: list[int],
+        reason: str,
+    ) -> None:
+        """将明确不喜欢的商品对应行为标记为弃用，并刷新派生画像。"""
+        try:
+            indexer = await get_user_behavior_indexer()
+            total = 0
+            for item_id in item_ids:
+                try:
+                    total += await asyncio.to_thread(
+                        indexer.supersede_by_item,
+                        user_id,
+                        int(item_id),
+                        reason,
+                    )
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "忽略非法不喜欢商品 ID: userId=%s, itemId=%s",
+                        user_id,
+                        item_id,
+                    )
+            if total:
+                from app.services.profile_service import get_profile_service
+                profile_service = await get_profile_service()
+                await profile_service.invalidate_profile(user_id)
+                logger.info(
+                    "已纠正用户商品行为记忆: userId=%s, itemCount=%d, memoryCount=%d",
+                    user_id,
+                    len(item_ids),
+                    total,
+                )
+        except Exception as e:
+            logger.warning(
+                "纠正用户商品行为记忆失败（不影响主流程）: userId=%s, itemIds=%s, error=%s",
+                user_id,
+                item_ids,
+                e,
+            )
 
     async def _async_feedback(
         self,
@@ -3726,13 +3961,19 @@ class AgentService:
                 is_react_path = bool(note and note.strip())
                 if is_react_path:
                     prev_state_summary = {
+                        "task_id": task_id,
                         "style_tags": prev_state.get("style_tags", []),
                         "color": prev_state.get("color"),
                         "categories": prev_state.get("category_constraints", []),
                         "shop_ids": prev_state.get("shop_ids"),
                         "prev_outfits": prev_state.get("outfit_candidates", []),
+                        "recent_episodes": prev_state.get("recent_episodes", []),
                     }
-                    tool_executor = ToolExecutor(user_id=user_id)
+                    allow_long_term_memory = should_persist_preference(note)
+                    tool_executor = ToolExecutor(
+                        user_id=user_id,
+                        allow_persistent_memory=allow_long_term_memory,
+                    )
                     parsed = await llm_client.react_feedback(
                         note=note.strip(),
                         prev_state_summary=prev_state_summary,
@@ -3767,6 +4008,20 @@ class AgentService:
                 parsed["retry_vton_item_ids"] = list(retry_vton_item_ids)
             if want_style_tags is not None:
                 parsed["want_style_tags"] = list(want_style_tags)
+
+            # 明确不喜欢某件商品时，同时弃用该商品对应的历史行为信号。
+            # 当前任务仍由 dislike_item_ids 过滤，长期画像则异步纠正，失败不阻塞换装流程。
+            disliked_item_ids = parsed.get("dislike_item_ids") or []
+            if disliked_item_ids:
+                correction_task = asyncio.create_task(
+                    self._supersede_disliked_item_behaviors(
+                        user_id=user_id,
+                        item_ids=disliked_item_ids,
+                        reason="用户反馈不喜欢该商品",
+                    )
+                )
+                self._pending_tasks.add(correction_task)
+                correction_task.add_done_callback(self._pending_tasks.discard)
 
             action = parsed.get("action", "regenerate_all")
             logger.info("反馈解析: taskId=%s, round=%d→%d, action=%s, outfitIdx=%s, itemIdx=%s, "
@@ -3861,10 +4116,23 @@ class AgentService:
             new_dislike_styles: list[str] = list(parsed.get("dislike_styles") or [])
             new_price_range = parsed.get("preferred_price_range") or None
             is_react_path = bool(note and note.strip())
-            should_persist_dislike = not is_react_path and bool(new_dislike_colors)
-            should_persist_dislike_styles = not is_react_path and bool(new_dislike_styles)
-            should_persist_price = not is_react_path and bool(new_price_range)
-            should_persist_like = (action == "accept")
+            allow_long_term_memory = should_persist_preference(
+                feedback,
+                note,
+                explicit_user_field=dislike_colors is not None,
+            )
+            should_persist_dislike = (
+                not is_react_path and allow_long_term_memory and bool(new_dislike_colors)
+            )
+            should_persist_dislike_styles = (
+                not is_react_path and allow_long_term_memory and bool(new_dislike_styles)
+            )
+            should_persist_price = (
+                not is_react_path and allow_long_term_memory and bool(new_price_range)
+            )
+            # 单次 accept 属于强行为信号，不直接把整套风格写成长期显式偏好；
+            # 用户明确说“以后喜欢/记住这个风格”时才持久化。
+            should_persist_like = action == "accept" and allow_long_term_memory
             if should_persist_dislike or should_persist_like or should_persist_dislike_styles or should_persist_price:
                 # 保存 Task 引用防止被 GC 回收（对齐 _async_recommend 模式）
                 pref_task = asyncio.create_task(self._persist_user_preference(
@@ -3921,6 +4189,7 @@ class AgentService:
                     "scene_desc": prev_state.get("scene_desc"),
                     "photo_session_key": prev_state.get("photo_session_key"),
                     "color": prev_state.get("color"),
+                    "color_is_explicit": prev_state.get("color_is_explicit", bool(prev_state.get("color"))),
                     "shop_ids": prev_state.get("shop_ids"),
                     "season": prev_state.get("season"),
                     "categories": prev_state.get("categories", []),
@@ -3951,6 +4220,9 @@ class AgentService:
                     "error": None,
                 }
 
+            # 反馈任务使用锁内推进后的 checkpoint 版本，避免异步结果覆盖后续反馈。
+            initial_state["checkpoint_version"] = prev_state.get("checkpoint_version", 0)
+
             # ----- 7. 跑 LangGraph 工作流 -----
             # 全局并发槽位：限制同时运行的生成工作流数量
             async with _workflow_slot():
@@ -3980,8 +4252,11 @@ class AgentService:
                 # O4 优化：反馈轮成功后也持久化 seen_item_ids（与首轮对齐）
                 # 否则反馈轮新推荐的商品不会进入跨会话去重池，下次会话可能重推
                 final_seen = final_state.get("seen_item_ids") or set()
-                if final_seen:
-                    await self._save_cross_session_seen_items(user_id, final_seen)
+                displayed_ids = self._extract_displayed_item_ids(final_state)
+                if final_seen and displayed_ids:
+                    await self._save_cross_session_seen_items(
+                        user_id, final_seen, refresh_item_ids=displayed_ids,
+                    )
                 self._record_workflow_metrics(start_time, "SUCCESS")
 
         except WorkflowBusyError as e:

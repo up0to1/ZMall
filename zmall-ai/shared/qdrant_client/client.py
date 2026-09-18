@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 # Collection 常量
 COLLECTION_ITEM_STYLE = "item_style"
 
-# 本地/内网地址不走代理（避免本地 Qdrant 也走代理）
+# 本地/内网地址不走代理（httpx 的 NO_PROXY 不匹配 CIDR，需显式列出 Qdrant VM）
 # 同时排除阿里百炼 LLM/千问 API，避免代理 SSL 握手失败
 # 注：阿里百炼在杭州，是国内服务，不应走海外代理
-_NO_PROXY_ADDRS = ("localhost,127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,"
+_NO_PROXY_ADDRS = ("localhost,127.0.0.1,192.168.59.128,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,"
                    "dashscope.aliyuncs.com,aliyuncs.com")
 
 
@@ -119,7 +119,7 @@ class QdrantClientWrapper:
         if COLLECTION_ITEM_STYLE not in collections:
             client.create_collection(
                 collection_name=COLLECTION_ITEM_STYLE,
-                # jina-clip-v2 原生 1024 维（与 EmbedClient.vector_dim 默认值对齐）
+                # DashScope text-embedding-v4 配置为 1024 维
                 vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
             )
             logger.info("Qdrant Collection 已创建: %s", COLLECTION_ITEM_STYLE)

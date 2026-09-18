@@ -43,6 +43,8 @@ class OutfitItem(BaseModel):
     isMain: bool = False              # 商品驱动模式主商品标记
     # 以下字段为审计/可解释性用，前端可忽略
     crossShop: bool = False
+    colorConstraintRelaxed: bool = False  # 明确颜色候选不足时，检索已降级为软偏好
+    inventoryUnknown: bool = False       # 实时库存查询失败/部分未知，购买前需再次校验
     score: float = 0.0
     styleTags: list[str] = Field(default_factory=list)
     itemGender: Optional[str] = None
@@ -64,6 +66,9 @@ class OutfitResult(BaseModel):
     isVtonGenerated: bool = False      # True=VTON 生成，False=商品图兜底/失败
     isSelected: bool = True            # 阶段二未选定的搭配为 False
     isPartialFailure: bool = False     # 部分单品 VTON 失败标记
+    vtonQualityStatus: Optional[str] = None  # passed / warning / unverified
+    vtonWarning: Optional[str] = None        # 仅高置信不一致时展示
+    vtonQualityIssues: list[str] = Field(default_factory=list)
 
 
 class TaskResultResponse(BaseModel):

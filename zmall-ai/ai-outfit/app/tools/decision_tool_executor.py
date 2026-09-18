@@ -17,6 +17,7 @@ import logging
 
 from app.api.deps import get_embed_client, get_java_client, get_qdrant_searcher
 from shared.qdrant_client.category_mapping import to_en, to_cn
+from shared.tools import call_with_check
 
 logger = logging.getLogger(__name__)
 
@@ -203,9 +204,16 @@ class DecisionToolExecutor:
             return {"error": "无有效价格"}
 
         ratio_max = settings.price_balance_ratio_max
-        result = analyze_price_balance(prices, ratio_max=ratio_max)
+        # 复用注册表 price_balance 工具的统一治理（熔断/超时），
+        # 失败返回 error 回喂 LLM 自主决策
+        result = await call_with_check(
+            "price_balance",
+            analyze_price_balance(prices, ratio_max=ratio_max),
+            fallback={"error": "价格平衡工具不可用（熔断/超时）"},
+            timeout=1.0,
+        )
         logger.info("[DecisionAgent] call_price_balance: prices=%s → %s",
-                     prices, result.get("balance_score"))
+                    prices, result.get("balance_score"))
         return result
 
     # ------------------------------------------------------------------
@@ -227,15 +235,22 @@ class DecisionToolExecutor:
         java_client = await get_java_client()
         embed_client = await get_embed_client()
 
-        result = await get_trending_styles(
-            java_client=java_client,
-            embed_client=embed_client,
-            category=category,
-            top_k=settings.trend_top_k,
-            cluster_k=settings.trend_cluster_k,
+        # 复用注册表 trending_styles 工具的统一治理（熔断/超时），
+        # 失败返回 error 回喂 LLM 自主决策
+        result = await call_with_check(
+            "trending_styles",
+            get_trending_styles(
+                java_client=java_client,
+                embed_client=embed_client,
+                category=category,
+                top_k=settings.trend_top_k,
+                cluster_k=settings.trend_cluster_k,
+            ),
+            fallback={"trending_styles": [], "error": "趋势工具不可用（熔断/超时）"},
+            timeout=10.0,
         )
         logger.info("[DecisionAgent] call_trending_styles: category=%s → %s",
-                     category, result.get("trending_styles"))
+                    category, result.get("trending_styles"))
         return result
 
     # ------------------------------------------------------------------
@@ -267,62 +282,82 @@ class DecisionToolExecutor:
 
         # 如果 LLM 显式传了 query，则只用 query 不拼地区关键词（LLM 自主决策）
         # 否则用 scene + style_tags + 地区关键词构造（默认行为）
+        # 两个分支均复用注册表 fashion_trend 工具的统一治理（熔断/超时），
+        # 失败返回 error 回喂 LLM 自主决策
+        fallback = {"merged_results": [], "error": "时尚潮流工具不可用（熔断/超时）", "data_source": "anysearch_api"}
         if custom_query:
             # LLM 自定义 query 模式：直接用 LLM 的 query，但仍走地区路由的 language/zone
-            from shared.external_services.fashion_trend_service import (
-                infer_country, REGIONAL_FASHION_STRATEGY, _DEFAULT_STRATEGY,
-                _build_query, _call_anysearch, _merge_results,
+            result = await call_with_check(
+                "fashion_trend",
+                self._search_fashion_trend_custom(custom_query),
+                fallback=fallback,
+                timeout=12.0,
             )
-            country_code = infer_country(self.user_city or "", self.user_country or "")
-            strategy = REGIONAL_FASHION_STRATEGY.get(country_code, _DEFAULT_STRATEGY)
-            social_query = custom_query
-            general_query = custom_query
-            import asyncio as _asyncio
-            social_task = _call_anysearch(
-                settings.anysearch_api_url, settings.anysearch_api_key,
-                social_query, "social_media.social_media",
-                strategy["language"], strategy["zone"],
-                max_results=settings.anysearch_max_results,
-                proxy_url=settings.proxy_url,
-            )
-            general_task = _call_anysearch(
-                settings.anysearch_api_url, settings.anysearch_api_key,
-                general_query, "general.general",
-                strategy["language"], strategy["zone"],
-                max_results=settings.anysearch_max_results,
-                proxy_url=settings.proxy_url,
-            )
-            social_results, general_results = await _asyncio.gather(
-                social_task, general_task, return_exceptions=True,
-            )
-            if isinstance(social_results, Exception):
-                social_results = []
-            if isinstance(general_results, Exception):
-                general_results = []
-            merged = _merge_results(social_results, general_results)
-            result = {
-                "city": self.user_city or "",
-                "country": country_code,
-                "region_label": strategy["region_label"],
-                "query_base": custom_query,
-                "social_results": social_results,
-                "general_results": general_results,
-                "merged_results": merged,
-                "total": len(merged),
-                "data_source": "anysearch_api",
-            }
         else:
             # 默认模式：用 city/country/scene/style_tags 走标准地区路由
-            result = await get_fashion_trends(
-                city=self.user_city or "",
-                country=self.user_country or "",
-                scene=scene,
-                style_tags=style_tags,
-                api_key=settings.anysearch_api_key,
-                api_url=settings.anysearch_api_url,
-                proxy_url=settings.proxy_url,
+            result = await call_with_check(
+                "fashion_trend",
+                get_fashion_trends(
+                    city=self.user_city or "",
+                    country=self.user_country or "",
+                    scene=scene,
+                    style_tags=style_tags,
+                    api_key=settings.anysearch_api_key,
+                    api_url=settings.anysearch_api_url,
+                    proxy_url=settings.proxy_url,
+                ),
+                fallback=fallback,
+                timeout=12.0,
             )
 
         logger.info("[DecisionAgent] search_fashion_trend: city=%s, country=%s → %d 条结果",
                     self.user_city, self.user_country, result.get("total", 0))
         return result
+
+    async def _search_fashion_trend_custom(self, custom_query: str) -> dict:
+        """LLM 自定义 query 模式的具体执行（仍走地区路由的 language/zone）
+
+        从 _search_fashion_trend 提取为独立协程，便于包进 call_with_check 统一治理。
+        """
+        import asyncio
+        from app.core.config import settings
+        from shared.external_services.fashion_trend_service import (
+            infer_country, REGIONAL_FASHION_STRATEGY, _DEFAULT_STRATEGY,
+            _call_anysearch, _merge_results,
+        )
+
+        country_code = infer_country(self.user_city or "", self.user_country or "")
+        strategy = REGIONAL_FASHION_STRATEGY.get(country_code, _DEFAULT_STRATEGY)
+        social_task = _call_anysearch(
+            settings.anysearch_api_url, settings.anysearch_api_key,
+            custom_query, "social_media.social_media",
+            strategy["language"], strategy["zone"],
+            max_results=settings.anysearch_max_results,
+            proxy_url=settings.proxy_url,
+        )
+        general_task = _call_anysearch(
+            settings.anysearch_api_url, settings.anysearch_api_key,
+            custom_query, "general.general",
+            strategy["language"], strategy["zone"],
+            max_results=settings.anysearch_max_results,
+            proxy_url=settings.proxy_url,
+        )
+        social_results, general_results = await asyncio.gather(
+            social_task, general_task, return_exceptions=True,
+        )
+        if isinstance(social_results, Exception):
+            social_results = []
+        if isinstance(general_results, Exception):
+            general_results = []
+        merged = _merge_results(social_results, general_results)
+        return {
+            "city": self.user_city or "",
+            "country": country_code,
+            "region_label": strategy["region_label"],
+            "query_base": custom_query,
+            "social_results": social_results,
+            "general_results": general_results,
+            "merged_results": merged,
+            "total": len(merged),
+            "data_source": "anysearch_api",
+        }

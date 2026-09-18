@@ -18,14 +18,15 @@ import httpx
 
 from app.api.deps import (
     get_embed_client, get_gen_client, get_java_client, get_llm_client, get_oss_uploader,
-    get_qdrant_searcher, get_redis, get_vton_client,
+    get_qdrant_searcher, get_redis, get_vton_client, get_vton_quality_service,
 )
 from app.core.config import settings
 from app.schemas.agent_state import AgentState
-from shared.metrics import record_agent_workflow_node
+from shared.metrics import record_agent_workflow_node, record_rag_guard
 from shared.qdrant_client.category_mapping import (
     DEFAULT_CATEGORIES_CN, to_cn, to_en,
 )
+from shared.qdrant_client.color_mapping import normalize_color_values
 # 共享模块：PIL 多件合成 + 辅助品类区域映射 + SSRF 防护（与 ai-models 商品驱动模式共用）
 from shared.outfit_common import (
     AUX_CATEGORY_REGION,
@@ -41,7 +42,7 @@ from shared.external_services.price_service import (
     analyze_price_balance, format_price_hint_for_llm,
 )
 from shared.external_services.inventory_service import (
-    filter_instock_items,
+    batch_query_stock,
 )
 from shared.external_services.trend_service import (
     get_trending_styles, format_trend_hint_for_llm,
@@ -124,6 +125,83 @@ _SEASON_DEFAULT_STYLE: dict[str, list[str]] = {
     "autumn": ["层次", "复古"],
     "winter": ["保暖", "厚重"],
 }
+
+
+def _outfit_matches_explicit_colors(outfit: dict, explicit_colors: list[str]) -> bool:
+    """校验一套搭配的已知商品颜色是否都满足用户明确选择。
+
+    颜色是用户表单中的硬约束；商品颜色缺失时保守地视为未知，交给后续
+    VTON 质检和前端提示处理，而不是因为脏数据直接丢弃候选。
+    """
+    expected = {color.casefold() for color in normalize_color_values(explicit_colors)}
+    if not expected:
+        return True
+    for item in outfit.get("items", []):
+        if item.get("_wardrobe_picked") or item.get("isMain"):
+            continue
+        actual = {color.casefold() for color in normalize_color_values(item.get("color"))}
+        if actual and not actual.intersection(expected):
+            return False
+    return True
+
+
+def _enforce_explicit_color_selection(
+    selected: list[dict],
+    candidates: list[dict],
+    explicit_colors: list[str] | None,
+) -> list[dict]:
+    """在 LLM 选择后做一次确定性颜色校验，并尽量用候选池补位。
+
+    检索放宽颜色约束是为了避免稀缺类目返回 0 件，但不能让放宽结果
+    无提示地成为最终结果。优先补入颜色满足的候选；确实没有满足项时
+    才保留原候选，并给商品打 color_constraint_relaxed 标记。
+    """
+    if not explicit_colors:
+        return selected
+
+    valid: list[dict] = []
+    invalid: list[dict] = []
+    used_indexes: set[int] = set()
+    for selection in selected:
+        idx = selection.get("outfit_idx")
+        if not isinstance(idx, int) or idx < 0 or idx >= len(candidates) or idx in used_indexes:
+            continue
+        used_indexes.add(idx)
+        if _outfit_matches_explicit_colors(candidates[idx], explicit_colors):
+            valid.append(selection)
+        else:
+            invalid.append(selection)
+
+    # 从原始候选池中补入颜色满足的搭配，避免完全依赖 LLM 的选择。
+    for idx, candidate in enumerate(candidates):
+        if len(valid) >= 3 or idx in used_indexes:
+            continue
+        if _outfit_matches_explicit_colors(candidate, explicit_colors):
+            valid.append({"outfit_idx": idx, "reason": "满足用户明确颜色偏好"})
+            used_indexes.add(idx)
+
+    # 候选确实不足时保留部分不匹配结果，但显式标记，供前端提示和质量统计。
+    result = valid[:3]
+    if len(result) < 3:
+        for selection in invalid:
+            if len(result) >= 3:
+                break
+            idx = selection.get("outfit_idx")
+            if isinstance(idx, int) and 0 <= idx < len(candidates):
+                for item in candidates[idx].get("items", []):
+                    if not item.get("_wardrobe_picked") and not item.get("isMain"):
+                        item["color_constraint_relaxed"] = True
+                result.append(selection)
+
+    if invalid:
+        color_outcome = "replaced" if len(result) <= len(valid) and valid else "relaxed"
+        record_rag_guard("color", color_outcome)
+        logger.warning(
+            "[节点3] LLM 选择中存在明确颜色不匹配，已做确定性补位: expected=%s, "
+            "invalid=%d, final=%d",
+            explicit_colors, len(invalid), len(result),
+        )
+    return result
 
 
 def _build_season_gender_hint(season: str | None, target_gender: str | None) -> str:
@@ -953,19 +1031,13 @@ async def _run_intent_agent(state: AgentState) -> dict | None:
     # color 统一为 list[str]：
     # LLM 可能返回 str、list 或嵌套 list（如 [['黑色', '白色']]）
     # 扁平化处理避免后续 join 报错 "expected str instance, list found"
-    _raw_color = result.get("color") or color
-    if isinstance(_raw_color, str):
-        final_color = [_raw_color]
-    elif isinstance(_raw_color, list):
-        flat: list[str] = []
-        for c in _raw_color:
-            if isinstance(c, list):
-                flat.extend(str(x) for x in c if x)
-            elif c:
-                flat.append(str(c))
-        final_color = flat
-    else:
-        final_color = None
+    # 前端/用户明确选择的颜色是强约束，不能被 LLM 的推断结果覆盖；
+    # 没有显式选择时才采用 LLM 推断，并将常见英文色名归一到商品库中文枚举。
+    from shared.qdrant_client.color_mapping import normalize_color_values
+
+    explicit_colors = normalize_color_values(color)
+    inferred_colors = normalize_color_values(result.get("color"))
+    final_color = explicit_colors or inferred_colors or None
     final_scene_desc = result.get("scene_desc") or scene_desc
     final_season = result.get("season") or "auto"
     user_visual_profile = result.get("user_visual_profile")
@@ -1409,6 +1481,9 @@ async def qdrant_search(state: AgentState) -> dict:
     prev_candidates = state.get("candidate_items_by_category", {})
     shop_ids = state.get("shop_ids")
     color = state.get("color")
+    color_is_explicit = state.get("color_is_explicit")
+    if color_is_explicit is None:
+        color_is_explicit = bool(color)
     season = state.get("season")
     # 性别与服装匹配：节点1 已确定 target_gender
     target_gender = state.get("target_gender")
@@ -1479,21 +1554,21 @@ async def qdrant_search(state: AgentState) -> dict:
         logger.info("[节点2] Qdrant 检索（反馈轮）: taskId=%s, all=%s, keep=%s, "
                      "wardrobeCovered=%s, search=%s, "
                      "shopIds=%s, color=%s, season=%s, targetGender=%s, "
-                     "dislikeColors=%s, dislikeItems=%d",
+                     "dislikeColors=%s, colorStrict=%s, dislikeItems=%d",
                      task_id, categories, keep_categories,
                      list(wardrobe_covered_categories), search_categories,
                      shop_ids, color, season, target_gender,
-                     user_dislike_colors, len(dislike_item_ids))
+                     user_dislike_colors, color_is_explicit, len(dislike_item_ids))
     else:
         search_categories = [c for c in categories
                              if c not in wardrobe_covered_categories]
         logger.info("[节点2] Qdrant 检索（首轮）: taskId=%s, categories=%s, "
                      "wardrobeCovered=%s, search=%s, shopIds=%s, color=%s, "
-                     "season=%s, targetGender=%s, dislikeColors=%s, dislikeItems=%d",
+                     "season=%s, targetGender=%s, dislikeColors=%s, colorStrict=%s, dislikeItems=%d",
                      task_id, categories,
                      list(wardrobe_covered_categories), search_categories,
                      shop_ids, color, season, target_gender,
-                     user_dislike_colors, len(dislike_item_ids))
+                     user_dislike_colors, color_is_explicit, len(dislike_item_ids))
 
     candidate_items_by_category: dict[str, list[dict]] = {}
 
@@ -1522,6 +1597,7 @@ async def qdrant_search(state: AgentState) -> dict:
         results = await _search_with_fallback(
             searcher, query_vector, category_en, color, season,
             user_dislike_colors, target_gender, shop_ids, task_id,
+            strict_color=bool(color_is_explicit),
         )
         # 后置过滤：排除用户不喜欢的商品 ID（dislike_item_ids）
         if dislike_item_ids:
@@ -1559,13 +1635,21 @@ async def _filter_candidates_by_inventory(
     1. 收集所有候选 item_id（除衣橱商品外），调 item-service 批量查库存
     2. 过滤掉 stock <= threshold 的商品
     3. 衣橱商品（_wardrobe_picked）不参与库存过滤（用户已选定）
-    4. 某品类过滤后为空 → 触发跨店补全（这里只标记，由后续逻辑处理）
+    4. 查询失败或部分商品未知时，不静默当作有库存，而是保留商品并标记
+       inventory_unknown=True，交给前端提示、下单链路再次校验。
     """
+    def mark_unknown(items_by_category: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        for category_items in items_by_category.values():
+            for item in category_items:
+                if not item.get("_wardrobe_picked"):
+                    item["inventory_unknown"] = True
+        return items_by_category
+
     try:
         java_client = await get_java_client()
     except Exception as e:
-        logger.warning("[节点2] 库存过滤跳过：JavaClient 不可用: %s", e)
-        return candidate_items_by_category
+        logger.warning("[节点2] 库存过滤跳过：JavaClient 不可用，标记库存未知: %s", e)
+        return mark_unknown(candidate_items_by_category)
 
     # 收集所有候选 item_id（衣橱商品跳过）
     all_item_ids: set[int] = set()
@@ -1577,25 +1661,48 @@ async def _filter_candidates_by_inventory(
     if not all_item_ids:
         return candidate_items_by_category
 
-    # 调用库存工具（统一熔断 + 超时 + 降级）
-    instock_ids, outstock_ids, stock_map = await call_with_check(
+    # 调用库存工具（统一熔断 + 超时 + 降级）。
+    # 用 None 作为失败哨兵，和“查询成功但全部为 0 库存”的 dict 区分开。
+    # 这样不会把服务故障误判成全部有库存。
+    try:
+        redis = await get_redis()
+    except Exception:
+        redis = None
+    stock_map = await call_with_check(
         "inventory",
-        filter_instock_items(
-            java_client, list(all_item_ids),
-            threshold=settings.inventory_threshold,
+        batch_query_stock(
+            java_client, list(all_item_ids), redis=redis,
         ),
-        fallback=(list(all_item_ids), [], {}),  # 降级：全部保留，不过滤
+        fallback=None,
         timeout=3.0,
     )
 
-    if not outstock_ids:
-        # 没有缺货商品或降级返回，原样返回
-        logger.info("[节点2] 库存过滤：无缺货商品（候选共 %d 件）", len(all_item_ids))
+    if not isinstance(stock_map, dict):
+        record_rag_guard("inventory", "unknown")
+        logger.warning("[节点2] 库存查询失败，保留候选但标记 inventory_unknown: taskId=%s", task_id)
+        return mark_unknown(candidate_items_by_category)
+
+    threshold = settings.inventory_threshold
+    known_ids = set(stock_map)
+    unknown_ids = all_item_ids - known_ids
+    outstock_ids = {
+        item_id for item_id, stock in stock_map.items()
+        if stock <= threshold
+    }
+    if unknown_ids:
+        record_rag_guard("inventory", "unknown", len(unknown_ids))
+        logger.warning("[节点2] 部分商品库存未知，保留并标记: taskId=%s, ids=%s",
+                       task_id, sorted(unknown_ids)[:20])
+
+    if not outstock_ids and not unknown_ids:
+        record_rag_guard("inventory", "pass")
+        logger.info("[节点2] 库存过滤：全部商品库存已确认（候选共 %d 件）", len(all_item_ids))
         return candidate_items_by_category
 
     logger.info("[节点2] 库存过滤：缺货 %d 件，将过滤: %s",
-                len(outstock_ids), outstock_ids[:10])
+                len(outstock_ids), sorted(outstock_ids)[:10])
     outstock_set = set(outstock_ids)
+    record_rag_guard("inventory", "filtered", len(outstock_set))
 
     # 执行过滤
     filtered_by_cat: dict[str, list[dict]] = {}
@@ -1610,6 +1717,8 @@ async def _filter_candidates_by_inventory(
             if iid in outstock_set:
                 logger.info("[节点2] 库存过滤：剔除品类 %s 的缺货商品 %s", cat, iid)
                 continue
+            if iid in unknown_ids:
+                it["inventory_unknown"] = True
             kept.append(it)
         filtered_by_cat[cat] = kept
         if len(kept) < len(items):
@@ -1628,6 +1737,7 @@ async def _search_with_fallback(
     target_gender: str | None,
     shop_ids: list[int] | None,
     task_id: str,
+    strict_color: bool = False,
 ) -> list[dict]:
     """单品类检索 + 缺货跨店降级补全 + 稀缺品类放宽兜底
 
@@ -1635,7 +1745,7 @@ async def _search_with_fallback(
     1. shop_ids 非空时先在指定店铺内检索（Filter: shop_ids + color + season + category + target_gender）
     2. 指定店铺检索为空或不足 MIN_CANDIDATES_PER_CATEGORY 件 → fallback 全平台检索补全
        并在跨店结果 item 上打标 cross_shop=true
-    3. 全平台仍不足 → 放宽条件兜底检索（去掉 season + 降低 score_threshold），
+    3. 全平台仍不足 → 先将显式颜色从硬约束放宽为软偏好，再去掉 season + 降低 score_threshold，
        缓解品类数据稀缺导致"检索为 0"（如全身套装全平台仅 3 件，夏季+女模过滤后不足 3 件，
        再被 0.3 相似度阈值过滤直接为 0）
 
@@ -1651,6 +1761,7 @@ async def _search_with_fallback(
 
     async def _do_search(
         shop_ids_: list[int] | None, ssn: str | None, thr: float,
+        strict_color_: bool,
     ) -> list[dict]:
         return await asyncio.to_thread(
             searcher.search_complementary_items,
@@ -1663,18 +1774,19 @@ async def _search_with_fallback(
             target_gender=target_gender,
             limit=5,
             score_threshold=thr,
+            strict_color=strict_color_,
         )
 
     try:
         # ① 指定店铺内检索（shop_ids 非空时）
         if shop_ids:
-            results = await _do_search(shop_ids, season, 0.3)
+            results = await _do_search(shop_ids, season, 0.3, strict_color)
             if len(results) >= MIN_CANDIDATES_PER_CATEGORY:
                 return results
             logger.info("[节点2] 店铺 %s 品类 %s 仅 %d 件（<%d），fallback 全平台补全（targetGender=%s）",
                          shop_ids, category_en, len(results), MIN_CANDIDATES_PER_CATEGORY, target_gender)
             # ② 跨店 fallback 补全
-            cross_results = await _do_search(None, season, 0.3)
+            cross_results = await _do_search(None, season, 0.3, strict_color)
             # 打标 cross_shop=true（前端展示"此件来自其他店铺"）
             for r in cross_results:
                 r["cross_shop"] = True
@@ -1688,9 +1800,12 @@ async def _search_with_fallback(
             if len(results) >= MIN_CANDIDATES_PER_CATEGORY:
                 return results
             # ③ 放宽兜底：去 season + 降阈值（店铺内数据更稀缺，直接全平台放宽重试）
-            relaxed = await _do_search(None, None, RELAX_SCORE_THRESHOLD)
+            relaxed = await _do_search(None, None, RELAX_SCORE_THRESHOLD, False)
             if relaxed:
-                logger.info("[节点2] 品类 %s 放宽兜底（去season+阈值0.1）: 补 %d 件", category_en, len(relaxed))
+                if strict_color:
+                    for r in relaxed:
+                        r["color_constraint_relaxed"] = True
+                logger.info("[节点2] 品类 %s 放宽兜底（颜色软化+去season+阈值0.1）: 补 %d 件", category_en, len(relaxed))
                 for r in relaxed:
                     if r.get("item_id") not in seen_ids:
                         r["cross_shop"] = True
@@ -1699,11 +1814,14 @@ async def _search_with_fallback(
             return results
 
         # ④ 全平台检索（shop_ids 为空时直接全平台）
-        results = await _do_search(None, season, 0.3)
+        results = await _do_search(None, season, 0.3, strict_color)
         if len(results) < MIN_CANDIDATES_PER_CATEGORY:
             # ⑤ 放宽兜底：去 season + 降阈值（缓解品类数据稀缺）
-            relaxed = await _do_search(None, None, RELAX_SCORE_THRESHOLD)
+            relaxed = await _do_search(None, None, RELAX_SCORE_THRESHOLD, False)
             if len(relaxed) > len(results):
+                if strict_color:
+                    for r in relaxed:
+                        r["color_constraint_relaxed"] = True
                 logger.info("[节点2] 品类 %s 放宽兜底（去season+阈值0.1）: %d → %d 件",
                              category_en, len(results), len(relaxed))
                 results = relaxed
@@ -1860,14 +1978,20 @@ async def outfit_combination(state: AgentState) -> dict:
             # 全是衣橱商品 → 永远保留（不应被去重）
             fresh_scored.append((items, score))
             continue
-        if is_replace_single:
-            # 点哪换哪：只要有 1 件新商品即可（待替换品类的那件）
-            if not non_wardrobe_ids.issubset(seen_item_ids):
-                fresh_scored.append((items, score))
+        # 标准模式：组合中至少有一个新商品；单品替换时只检查目标品类。
+        target_category = (feedback_parsed or {}).get("target_category")
+        if is_replace_single and target_category:
+            replacement_ids = {
+                it.get("item_id") for it in items
+                if it.get("item_id")
+                and not it.get("_wardrobe_picked")
+                and str(it.get("category")) == str(target_category)
+            }
+            is_fresh = bool(replacement_ids - seen_item_ids)
         else:
-            # 标准模式：组合中至少有一个新商品才保留
-            if not non_wardrobe_ids.issubset(seen_item_ids):
-                fresh_scored.append((items, score))
+            is_fresh = bool(non_wardrobe_ids - seen_item_ids)
+        if is_fresh:
+            fresh_scored.append((items, score))
 
     if fresh_scored:
         top_candidates = fresh_scored[:10]  # 取 Top10 喂给 LLM
@@ -2066,6 +2190,12 @@ async def outfit_combination(state: AgentState) -> dict:
             for i in range(min(3, len(llm_candidates)))
         ]
 
+    # LLM 只能在候选池中做语义决策，不能绕过用户表单的硬约束。
+    # 检索稀缺时虽然允许颜色软化，但最终仍做一次确定性校验和补位。
+    selected = _enforce_explicit_color_selection(
+        selected, llm_candidates, state.get("color") if state.get("color_is_explicit") else None,
+    )
+
     # 补全单品店铺名（来源标签展示）：按候选商品 shopId 批量查店铺名
     # 店铺名接口：social-service GET /merchant/profile/shop-name?userId={shopId}
     # 失败不阻塞主流程（来源标签退化为"全平台/店铺"文本）
@@ -2113,6 +2243,8 @@ async def outfit_combination(state: AgentState) -> dict:
                 "shopId": it.get("shop_id"),
                 "shopName": shop_name_map.get(it.get("shop_id")) or "",
                 "crossShop": it.get("cross_shop", False),
+                "colorConstraintRelaxed": it.get("color_constraint_relaxed", False),
+                "inventoryUnknown": it.get("inventory_unknown", False),
                 "score": it.get("score"),
                 "isWardrobePicked": it.get("_wardrobe_picked", False),
                 "source": ("wardrobe" if it.get("_wardrobe_picked")
@@ -2145,6 +2277,8 @@ async def outfit_combination(state: AgentState) -> dict:
                     "shopId": it.get("shop_id"),
                     "shopName": shop_name_map.get(it.get("shop_id")) or "",
                     "crossShop": it.get("cross_shop", False),
+                    "colorConstraintRelaxed": it.get("color_constraint_relaxed", False),
+                    "inventoryUnknown": it.get("inventory_unknown", False),
                     "score": it.get("score"),
                     "isWardrobePicked": it.get("_wardrobe_picked", False),
                     "source": ("wardrobe" if it.get("_wardrobe_picked")
@@ -2174,6 +2308,8 @@ async def outfit_combination(state: AgentState) -> dict:
                 "shopId": it.get("shop_id"),
                 "shopName": shop_name_map.get(it.get("shop_id")) or "",
                 "crossShop": it.get("cross_shop", False),
+                "colorConstraintRelaxed": it.get("color_constraint_relaxed", False),
+                "inventoryUnknown": it.get("inventory_unknown", False),
                 "score": it.get("score"),
                 "isWardrobePicked": it.get("_wardrobe_picked", False),
                 "source": ("wardrobe" if it.get("_wardrobe_picked")
@@ -2321,14 +2457,20 @@ async def _outfit_combination_product(state: AgentState) -> dict:
                 # 无新互补商品 → 永远保留（不应被去重）
                 fresh_candidates.append(cand)
                 continue
-            if is_replace_single:
-                # 点哪换哪：只要有 1 件新互补商品即可
-                if not new_comp_ids.issubset(seen_item_ids):
-                    fresh_candidates.append(cand)
+            target_category = (feedback_parsed or {}).get("target_category")
+            if is_replace_single and target_category:
+                replacement_ids = {
+                    it.get("itemId") for it in cand["items"]
+                    if it.get("itemId") is not None
+                    and not it.get("isMain")
+                    and not it.get("_kept_from_prev")
+                    and str(it.get("category")) == str(target_category)
+                }
+                is_fresh = bool(replacement_ids - seen_item_ids)
             else:
-                # 标准模式：组合中至少有一个新互补商品才保留
-                if not new_comp_ids.issubset(seen_item_ids):
-                    fresh_candidates.append(cand)
+                is_fresh = bool(new_comp_ids - seen_item_ids)
+            if is_fresh:
+                fresh_candidates.append(cand)
         if fresh_candidates:
             all_candidates = fresh_candidates
             logger.info("[节点3-商品驱动][反馈轮] seen_item_ids 过滤后剩余 %d 套",
@@ -2736,6 +2878,7 @@ async def _generate_single_outfit(
     outfit: dict,
     user_photo: bytes,
     vton_client,
+    garment_references: list[dict] | None = None,
 ) -> bytes | None:
     """单套搭配的全身换装生成（链式VTON + wan2.7-image 配饰穿戴）
 
@@ -2795,12 +2938,51 @@ async def _generate_single_outfit(
     download_tasks = [_download_image(it.get("image")) for it in ordered_items]
     downloaded = await asyncio.gather(*download_tasks, return_exceptions=False)
 
+    # VTON 直接使用裁剪后的单品参考图；原商品图和展示数据不做修改。
+    # 定位模型失败时服务会返回原图，避免预处理故障阻断搭配生成。
+    try:
+        quality_service = await get_vton_quality_service()
+    except Exception as exc:
+        logger.info("[节点4] VTON 视觉预处理服务不可用，继续使用商品原图: %s", exc)
+        quality_service = None
+
+    async def _prepare_reference(item: dict, image_bytes: bytes):
+        if quality_service is None:
+            return image_bytes, {"cropped": False, "reason": "service_unavailable"}
+        try:
+            prepared_bytes, report = await quality_service.prepare_garment_reference(image_bytes, item)
+            if not isinstance(prepared_bytes, bytes):
+                return image_bytes, {"cropped": False, "reason": "invalid_prepared_image"}
+            return prepared_bytes, report if isinstance(report, dict) else {}
+        except Exception as exc:
+            logger.info("[节点4] 商品图单品裁剪异常，保留原图: category=%s error=%s",
+                        item.get("category"), exc)
+            return image_bytes, {"cropped": False, "reason": "crop_failed"}
+
+    prepared = await asyncio.gather(*(
+        _prepare_reference(it, image_bytes)
+        for it, image_bytes in zip(ordered_items, downloaded)
+        if image_bytes is not None
+    ))
+
     garment_bytes_list: list[bytes] = []
     garment_categories: list[str] = []
+    prepared_index = 0
     for it, b in zip(ordered_items, downloaded):
         if b is not None:
-            garment_bytes_list.append(b)
+            prepared_bytes, crop_report = prepared[prepared_index]
+            prepared_index += 1
+            garment_bytes_list.append(prepared_bytes)
             garment_categories.append(it.get("category"))
+            if garment_references is not None:
+                garment_references.append({
+                    "category": it.get("category"),
+                    "name": it.get("name") or it.get("title"),
+                    "color": it.get("color"),
+                    "image_bytes": prepared_bytes,
+                })
+            logger.info("[节点4] 商品参考图已准备: taskIdx=%d category=%s cropped=%s",
+                        idx + 1, it.get("category"), crop_report.get("cropped", False))
         else:
             logger.warning("[节点4] 第%d套 商品图下载失败: category=%s, image=%s",
                            idx + 1, it.get("category"), str(it.get("image"))[:80])
@@ -2850,6 +3032,57 @@ async def _generate_single_outfit(
             return composed
 
     return base_image
+
+
+async def _review_vton_outputs(
+    outfit_candidates: list[dict],
+    generated_images: list[bytes | None],
+    garment_references: list[list[dict]],
+    task_id: str,
+) -> list[dict | None]:
+    """审核 VTON 结果；审核失败视为未审核，不影响生成任务成功。"""
+    reports: list[dict | None] = [None] * len(outfit_candidates)
+    review_indexes = [
+        idx for idx, image in enumerate(generated_images[:len(outfit_candidates)])
+        if image is not None and idx < len(garment_references)
+        and garment_references[idx]
+    ]
+    if not review_indexes:
+        return reports
+
+    try:
+        quality_service = await get_vton_quality_service()
+    except Exception as exc:
+        logger.info("[节点4] VTON 一致性审核服务不可用，按未审核放行: taskId=%s error=%s",
+                    task_id, exc)
+        return [
+            ({"status": "unverified", "warning": None, "issues": [], "confidence": 0.0}
+             if idx in review_indexes else None)
+            for idx in range(len(outfit_candidates))
+        ]
+    results = await asyncio.gather(*(
+        quality_service.review_result(
+            generated_images[idx],
+            outfit_candidates[idx].get("items", []),
+            garment_references[idx],
+        )
+        for idx in review_indexes
+    ), return_exceptions=True)
+    for idx, result in zip(review_indexes, results):
+        if isinstance(result, Exception):
+            logger.info("[节点4] VTON 一致性审核异常，按未审核放行: taskId=%s outfit=%d error=%s",
+                        task_id, idx + 1, result)
+            reports[idx] = {"status": "unverified", "warning": None,
+                            "issues": [], "confidence": 0.0}
+            continue
+        if not isinstance(result, dict):
+            reports[idx] = {"status": "unverified", "warning": None,
+                            "issues": [], "confidence": 0.0}
+            continue
+        reports[idx] = result
+        logger.info("[节点4] VTON 一致性审核完成: taskId=%s outfit=%d status=%s confidence=%s",
+                    task_id, idx + 1, result.get("status"), result.get("confidence"))
+    return reports
 
 
 async def _wear_accessories_chain(
@@ -3466,8 +3699,11 @@ async def vton_generation(state: AgentState) -> dict:
     # 并行生成 3 套搭配的换装图（asyncio.gather 同时执行）
     # return_exceptions=True 防止单套 VTON 异常拖垮全部 3 套。
     # 节点5 已有 `if gen_image is not None` 判断，异常对象在此统一降级为 None。
+    garment_references: list[list[dict]] = [[] for _ in outfit_candidates]
     tasks = [
-        _generate_single_outfit(idx, outfit, user_photo, vton_client)
+        _generate_single_outfit(
+            idx, outfit, user_photo, vton_client, garment_references[idx]
+        )
         for idx, outfit in enumerate(outfit_candidates)
     ]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -3514,7 +3750,13 @@ async def vton_generation(state: AgentState) -> dict:
             logger.info("[节点4-retryVTON] 未获取到上一轮效果图，跳过精修（用重新 VTON 结果）: "
                         "taskId=%s", task_id)
 
-    return {"generated_images": generated_images}
+    quality_reports = await _review_vton_outputs(
+        outfit_candidates, generated_images, garment_references, task_id,
+    )
+    return {
+        "generated_images": generated_images,
+        "vton_quality_reports": quality_reports,
+    }
 
 
 async def _vton_generation_selected(
@@ -3564,8 +3806,12 @@ async def _vton_generation_selected(
     valid_indexes = [idx for idx in selected_indexes if 0 <= idx < len(outfit_candidates)]
     invalid_indexes = [idx for idx in selected_indexes if not (0 <= idx < len(outfit_candidates))]
 
+    garment_references: list[list[dict]] = [[] for _ in outfit_candidates]
     selected_tasks = [
-        _generate_single_outfit(idx, outfit_candidates[idx], user_photo, vton_client)
+        _generate_single_outfit(
+            idx, outfit_candidates[idx], user_photo, vton_client,
+            garment_references[idx],
+        )
         for idx in valid_indexes
     ]
     raw_results = await asyncio.gather(*selected_tasks, return_exceptions=True)
@@ -3601,9 +3847,13 @@ async def _vton_generation_selected(
     logger.info("[节点4-阶段二] VTON 完成: taskId=%s, selected=%d, success=%d, failed=%d",
                  task_id, len(selected_indexes), success_count, len(partial_failures))
 
+    quality_reports = await _review_vton_outputs(
+        outfit_candidates, generated_images, garment_references, task_id,
+    )
     return {
         "generated_images": generated_images,
         "partial_failures": partial_failures,
+        "vton_quality_reports": quality_reports,
     }
 
 
@@ -3632,6 +3882,7 @@ async def oss_upload(state: AgentState) -> dict:
     stage = state.get("stage")
     selected_indexes = set(state.get("selected_outfit_indexes") or [])
     partial_failures = set(state.get("partial_failures") or [])
+    quality_reports = state.get("vton_quality_reports") or []
 
     if not outfit_candidates:
         return {"final_outfits": []}
@@ -3685,7 +3936,8 @@ async def oss_upload(state: AgentState) -> dict:
                 result_url = None
                 is_vton_generated = False
 
-        final_outfits.append({
+        quality_report = quality_reports[idx] if idx < len(quality_reports) else None
+        final_outfit = {
             "items": items,
             "resultUrl": result_url,
             "isVtonGenerated": is_vton_generated,
@@ -3695,7 +3947,14 @@ async def oss_upload(state: AgentState) -> dict:
             "isPartialFailure": idx in partial_failures,
             "score": outfit.get("score", 0.0),
             "reason": outfit.get("reason", ""),  # 透传 LLM 推荐理由
-        })
+        }
+        if quality_report:
+            final_outfit["vtonQualityStatus"] = quality_report.get("status")
+            if quality_report.get("warning"):
+                final_outfit["vtonWarning"] = quality_report["warning"]
+            if quality_report.get("issues"):
+                final_outfit["vtonQualityIssues"] = quality_report["issues"]
+        final_outfits.append(final_outfit)
 
     vton_count = sum(1 for f in final_outfits if f.get("isVtonGenerated"))
     logger.info("[节点5] 已组装 %d 套最终搭配: stage=%s, vtonGenerated=%d",

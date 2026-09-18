@@ -5,7 +5,7 @@
 用于画像聚合服务（profile_service.py）的个性化推荐增强。
 
 Collection 设计：
-  - 向量维度：1024（jina-clip-v2 商品图向量）
+  - 向量维度：1024（与商品向量集合保持一致）
   - 距离度量：Cosine
   - point_id：ub_{userId}_{itemId}_{timestamp}（唯一标识一次行为）
 
@@ -31,14 +31,16 @@ import hashlib
 import logging
 from datetime import datetime
 
-from qdrant_client.http.models import PointStruct, VectorParams, Distance
+from qdrant_client.http.models import (
+    PointStruct, VectorParams, Distance, Filter, FieldCondition, MatchValue,
+)
 
 from shared.qdrant_client.client import QdrantClientWrapper
 
 logger = logging.getLogger(__name__)
 
 COLLECTION_USER_BEHAVIOR = "zmall_user_behavior"
-_BEHAVIOR_VECTOR_DIM = 1024  # jina-clip-v2 原生维度
+_BEHAVIOR_VECTOR_DIM = 1024  # 与商品向量集合维度保持一致
 
 
 class UserBehaviorIndexer:
@@ -63,6 +65,20 @@ class UserBehaviorIndexer:
                     ),
                 )
                 logger.info("Qdrant Collection 已创建: %s", COLLECTION_USER_BEHAVIOR)
+            for field_name, field_schema in (("user_id", "integer"), ("item_id", "integer")):
+                try:
+                    self.client.create_payload_index(
+                        collection_name=COLLECTION_USER_BEHAVIOR,
+                        field_name=field_name,
+                        field_schema=field_schema,
+                    )
+                except Exception as e:
+                    if "already" not in str(e).lower():
+                        logger.debug(
+                            "user_behavior %s 索引已存在或跳过: %s",
+                            field_name,
+                            e,
+                        )
         except Exception as e:
             logger.warning("创建 user_behavior collection 失败: %s", e)
 
@@ -115,6 +131,13 @@ class UserBehaviorIndexer:
                 "item_id": item_id,
                 "type": behavior_type,
                 "timestamp": timestamp,
+                # 长期记忆审计元数据：行为默认是来自 MQ 的一手事件，
+                # 置信度为 1；后续纠错只更新 status，不删除原始记录。
+                "memory_id": point_id,
+                "source": "mq:user_behavior",
+                "created_at": datetime.now().isoformat(),
+                "confidence": 1.0,
+                "status": "active",
                 "category": category,
                 "color": color,
                 "price": price,
@@ -150,6 +173,70 @@ class UserBehaviorIndexer:
                 user_id, item_id, behavior_type, e,
             )
             return False
+
+    def supersede_memory(self, user_id: int, memory_id: str, reason: str | None = None) -> bool:
+        """将一条行为记忆标记为已弃用，保留原记录用于审计。"""
+        try:
+            points = self.client.retrieve(
+                collection_name=COLLECTION_USER_BEHAVIOR,
+                ids=[memory_id],
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points or (points[0].payload or {}).get("user_id") != user_id:
+                return False
+            self.client.set_payload(
+                collection_name=COLLECTION_USER_BEHAVIOR,
+                payload={
+                    "status": "superseded",
+                    "superseded_at": datetime.now().isoformat(),
+                    "superseded_reason": reason,
+                },
+                points=[memory_id],
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "弃用用户行为记忆失败: userId=%s, memoryId=%s, error=%s",
+                user_id, memory_id, e,
+            )
+            return False
+
+    def supersede_by_item(self, user_id: int, item_id: int, reason: str | None = None) -> int:
+        """弃用用户对某商品产生的行为记忆，返回实际更新条数。"""
+        try:
+            results, _ = self.client.scroll(
+                collection_name=COLLECTION_USER_BEHAVIOR,
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+                    FieldCondition(key="item_id", match=MatchValue(value=item_id)),
+                ]),
+                limit=1000,
+                with_payload=True,
+                with_vectors=False,
+            )
+            memory_ids = [
+                point.id for point in results
+                if (point.payload or {}).get("status", "active") == "active"
+            ]
+            if not memory_ids:
+                return 0
+            self.client.set_payload(
+                collection_name=COLLECTION_USER_BEHAVIOR,
+                payload={
+                    "status": "superseded",
+                    "superseded_at": datetime.now().isoformat(),
+                    "superseded_reason": reason or "disliked item",
+                },
+                points=memory_ids,
+            )
+            return len(memory_ids)
+        except Exception as e:
+            logger.warning(
+                "按 item 弃用用户行为记忆失败: userId=%s, itemId=%s, error=%s",
+                user_id, item_id, e,
+            )
+            return 0
 
     @staticmethod
     def _check_gender_alignment(item_gender: str | None, user_gender: str | None) -> bool:

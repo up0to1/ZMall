@@ -296,7 +296,7 @@ class UserBehaviorMqConsumer:
 
         # 2. 写入 Qdrant
         if self._indexer:
-            self._indexer.index_behavior(
+            indexed = self._indexer.index_behavior(
                 user_id=user_id,
                 item_id=item_id,
                 behavior_type=behavior_type,
@@ -310,5 +310,28 @@ class UserBehaviorMqConsumer:
                 user_gender=user_gender,
                 vector=vector,
             )
+            # 强行为已经落库后立即失效画像缓存，避免 CART_ADD/ORDER_PLACE/OUTFIT_ACCEPT
+            # 只能等 24 小时 TTL 才进入画像。ITEM_VIEW 频率高且是弱信号，继续使用 TTL，
+            # 避免每次浏览都触发画像重算；失效失败不影响 MQ 消息成功处理。
+            if indexed and behavior_type in {"CART_ADD", "ORDER_PLACE", "OUTFIT_ACCEPT"}:
+                try:
+                    from app.services.profile_service import get_profile_service
+
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._invalidate_profile_cache(get_profile_service, user_id),
+                        self._loop,
+                    )
+                    future.result(timeout=3)
+                except Exception as e:
+                    logger.warning(
+                        "行为已写入但画像缓存失效失败: userId=%s, error=%s",
+                        user_id, e,
+                    )
         else:
             logger.warning("UserBehaviorIndexer 未初始化，跳过写入: userId=%s, itemId=%s", user_id, item_id)
+
+    @staticmethod
+    async def _invalidate_profile_cache(profile_service_factory, user_id: int):
+        """在线程消费者中回到 FastAPI 事件循环失效画像缓存。"""
+        profile_service = await profile_service_factory()
+        await profile_service.invalidate_profile(user_id)

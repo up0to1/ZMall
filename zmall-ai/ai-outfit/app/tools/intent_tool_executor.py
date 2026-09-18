@@ -17,6 +17,7 @@ LlmClient.react_intent 调用本模块的 IntentToolExecutor 执行 LLM 自主�
 import logging
 
 from app.api.deps import get_embed_client, get_llm_client, get_redis
+from shared.tools import call_with_check
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +153,19 @@ class IntentToolExecutor:
             return {"error": "weather_api_key 未配置"}
 
         redis_client = await get_redis()
-        weather_info = await get_weather(city, api_key, api_url, redis=redis_client)
+        # 复用注册表 weather 工具的统一治理（熔断/超时/降级），
+        # 失败返回 error 回喂 LLM 自主决策（与执行器其他工具失败语义一致）
+        weather_info = await call_with_check(
+            "weather",
+            get_weather(city, api_key, api_url, redis=redis_client),
+            fallback={"error": "天气工具不可用（熔断/超时）"},
+            timeout=5.0,
+        )
         if not weather_info:
             return {"error": "get_weather 返回空"}
+        if weather_info.get("error"):
+            # 熔断/超时降级值原样回喂 LLM（带 error 字段，LLM 可感知失败原因）
+            return weather_info
         logger.info("[IntentAgent] get_weather_season: city=%s → season=%s",
                      city, weather_info.get("season"))
         return {

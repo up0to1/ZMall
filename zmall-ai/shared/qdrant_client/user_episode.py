@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 COLLECTION_USER_EPISODE = "zmall_user_episode"
 
-# 占位向量维度（与 item_style 一致，jina-clip-v2 原生 1024 维，未来可换成 style_tags 编码向量）
+# 占位向量维度（与 item_style 的 DashScope text-embedding-v4 1024 维配置一致）
 _EPISODE_VECTOR_DIM = 1024
 
 # 读取最近 N 条搭配事件（避免一次拉太多）
@@ -76,6 +76,15 @@ class UserEpisodeStore:
             except Exception as e:
                 if "already" not in str(e).lower():
                     logger.debug("user_episode user_id 索引已存在或跳过: %s", e)
+            try:
+                self.client.create_payload_index(
+                    collection_name=COLLECTION_USER_EPISODE,
+                    field_name="task_id",
+                    field_schema="keyword",
+                )
+            except Exception as e:
+                if "already" not in str(e).lower():
+                    logger.debug("user_episode task_id 索引已存在或跳过: %s", e)
         except Exception as e:
             logger.warning("创建 user_episode collection 失败: %s", e)
 
@@ -114,6 +123,7 @@ class UserEpisodeStore:
                 })
 
             point_id = str(uuid.uuid4())
+            now = datetime.now().isoformat()
             payload = {
                 "user_id": user_id,
                 "task_id": task_id,
@@ -121,7 +131,12 @@ class UserEpisodeStore:
                 "style_tags": list(style_tags) if style_tags else [],
                 "scene_desc": scene_desc,
                 "season": season,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now,
+                "memory_id": point_id,
+                "source": "user_accept",
+                "created_at": now,
+                "confidence": 1.0,
+                "status": "active",
             }
             self.client.upsert(
                 collection_name=COLLECTION_USER_EPISODE,
@@ -138,6 +153,70 @@ class UserEpisodeStore:
             return True
         except Exception as e:
             logger.warning("[EpisodicMemory] 记录搭配事件失败（不影响主流程）: %s", e)
+            return False
+
+    def supersede_memory(self, user_id: int, memory_id: str, reason: str | None = None) -> bool:
+        """将一条事件记忆标记为已弃用，保留原事件用于审计。"""
+        try:
+            points = self.client.retrieve(
+                collection_name=COLLECTION_USER_EPISODE,
+                ids=[memory_id],
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points or (points[0].payload or {}).get("user_id") != user_id:
+                return False
+            self.client.set_payload(
+                collection_name=COLLECTION_USER_EPISODE,
+                payload={
+                    "status": "superseded",
+                    "superseded_at": datetime.now().isoformat(),
+                    "superseded_reason": reason,
+                },
+                points=[memory_id],
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "弃用用户事件记忆失败: userId=%s, memoryId=%s, error=%s",
+                user_id, memory_id, e,
+            )
+            return False
+
+    def supersede_by_task(self, user_id: int, task_id: str, reason: str | None = None) -> bool:
+        """按用户和任务弃用事件，供用户撤回某次采纳时使用。"""
+        try:
+            results, _ = self.client.scroll(
+                collection_name=COLLECTION_USER_EPISODE,
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+                    FieldCondition(key="task_id", match=MatchValue(value=task_id)),
+                ]),
+                limit=100,
+                with_payload=True,
+                with_vectors=False,
+            )
+            memory_ids = [
+                point.id for point in results
+                if (point.payload or {}).get("status", "active") == "active"
+            ]
+            if not memory_ids:
+                return False
+            self.client.set_payload(
+                collection_name=COLLECTION_USER_EPISODE,
+                payload={
+                    "status": "superseded",
+                    "superseded_at": datetime.now().isoformat(),
+                    "superseded_reason": reason or "corrected by user",
+                },
+                points=memory_ids,
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "按 task 弃用用户事件记忆失败: userId=%s, taskId=%s, error=%s",
+                user_id, task_id, e,
+            )
             return False
 
     def get_recent_episodes(self, user_id: int, limit: int = MAX_EPISODES_TO_READ) -> list[dict]:
@@ -171,12 +250,20 @@ class UserEpisodeStore:
             seen_tasks: set[str] = set()
             for point in results:
                 payload = point.payload or {}
+                if payload.get("status", "active") != "active":
+                    continue
+                try:
+                    if float(payload.get("confidence", 1.0)) <= 0:
+                        continue
+                except (TypeError, ValueError):
+                    continue
                 task_id = payload.get("task_id")
                 # 同一 task 只保留最新一条（避免一次会话多次 accept 污染）
                 if task_id and task_id in seen_tasks:
                     continue
                 seen_tasks.add(task_id)
                 episodes.append({
+                    "memory_id": payload.get("memory_id") or str(point.id),
                     "task_id": task_id,
                     "accepted_items": payload.get("accepted_items", []),
                     "style_tags": payload.get("style_tags", []),

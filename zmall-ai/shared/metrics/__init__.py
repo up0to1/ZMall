@@ -14,6 +14,7 @@ Prometheus 监控指标定义（后端架构方案 §7.5 监控告警）
   - ai_tool_call_total{tool, status}           v6 外部工具调用计数
   - ai_tool_call_duration_seconds{tool}        v6 外部工具调用耗时分布
   - ai_tool_circuit_state{tool, state}         v6 外部工具熔断状态
+  - ai_rag_guard_total{guard, outcome}         RAG 硬约束/降级结果
 
 告警阈值参考：
   - ai_model_generate_duration_seconds_quantile{quantile="0.95"} > 30s
@@ -115,6 +116,20 @@ VTON_CALL_DURATION = Histogram(
     "VTON 虚拟试衣调用耗时分布（秒）",
     buckets=(1, 5, 10, 30, 60, 120, 180),
 )
+
+
+# ========== RAG 结果防线监控 ==========
+
+RAG_GUARD_TOTAL = Counter(
+    "ai_rag_guard_total",
+    "RAG 检索后确定性约束与降级结果",
+    ["guard", "outcome"],  # guard: color/inventory; outcome: pass/replaced/relaxed/unknown/filtered
+)
+
+
+def record_rag_guard(guard: str, outcome: str, count: int = 1):
+    """记录 RAG 后置约束结果，供线上观察颜色放宽和库存未知比例。"""
+    RAG_GUARD_TOTAL.labels(guard=guard, outcome=outcome).inc(count)
 
 
 def record_agent_workflow_node(node: str, status: str, duration_seconds: float):

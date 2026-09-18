@@ -43,7 +43,8 @@ class AgentState(TypedDict, total=False):
     photo_session_key: str | None
     # 结构化输入字段
     shop_ids: list[int]               # 指定店铺内检索（支持多选），None/空则全平台
-    color: list[str] | None             # 偏好色调列表（中文，如 ['白色','蓝色']），should 加权非强制
+    color: list[str] | None             # 偏好色调列表（中文，如 ['白色','蓝色']）
+    color_is_explicit: bool             # 是否来自用户结构化选择；明确选择时首轮硬过滤，候选不足再放宽
     # 注解对齐实际行为。categories 缺省/None 时节点2 走默认品类组合，
     # state.get("categories") 返回 None，故注解需显式允许 None
     categories: list[str] | None       # 用户指定品类组合（中文），None/空则默认 [上衣, 下装, 鞋]
@@ -68,7 +69,7 @@ class AgentState(TypedDict, total=False):
 
     # ===== 节点1 输出：意图理解 =====
     query_text: str                  # 风格标签 + 场景描述拼接的检索文本
-    query_vector: list[float] | None # 文本/图片向量（CLIP 1024 维）
+    query_vector: list[float] | None # 文本向量（DashScope text-embedding-v4，1024 维）
     category_constraints: list[str]  # 品类约束，如 ["上衣", "下装", "鞋"]
     user_photo: bytes | None         # 用户真人照片（可选，场景 B 非空，场景 A 为 None）
     # 场景 B 专用：LLM 图像理解模型分析用户照片得到的视觉特征
@@ -126,6 +127,8 @@ class AgentState(TypedDict, total=False):
 
     # ===== 节点4 输出：换装生成 =====
     generated_images: list[bytes | None]  # 与 outfit_candidates 一一对应
+    # VTON 生成图与所选商品的一致性检查结果（与 outfit_candidates 一一对应）
+    vton_quality_reports: list[dict | None]
 
     # ===== 节点5 输出：OSS 上传 =====
     final_outfits: list[dict]        # 最终结果，含 resultUrl
@@ -154,6 +157,9 @@ class AgentState(TypedDict, total=False):
     seen_item_ids: set[int]
     # 工作流是否已完成（accept 或轮次超限时置 True）
     finished: bool
+
+    # Redis task checkpoint 的乐观并发版本；只用于持久化 CAS，不参与模型决策
+    checkpoint_version: int
 
     # ===== 用户偏好字段（US-AT-21/22，P0 同会话累积）=====
     # 同会话累积的不喜欢颜色（跨轮次持续生效，会话结束 Redis TTL 30min 后自然清除）

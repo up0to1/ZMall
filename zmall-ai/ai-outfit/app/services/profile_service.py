@@ -37,7 +37,9 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 from shared.db_client import DbClient
+from shared.distributed_lock import DistributedLock
 from shared.qdrant_client.client import QdrantClientWrapper
+from shared.qdrant_client.color_mapping import normalize_color_values
 from shared.qdrant_client.user_preference import UserPreferenceReader
 
 logger = logging.getLogger(__name__)
@@ -101,26 +103,53 @@ class ProfileService:
             画像聚合失败时返回 profile_confidence=0 的空画像。
         """
         cache_key = f"{PROFILE_KEY_PREFIX}{user_id}"
+        cached = await self._read_cached_profile(cache_key, user_id)
+        if cached is not None:
+            return cached
+
+        # 缓存失效时只允许一个请求聚合画像，避免高并发下同时扫描 Qdrant/MySQL。
+        # 锁不可用时仍保留原有降级路径，不让画像治理影响主推荐链路。
+        lock = DistributedLock(
+            self._redis,
+            f"lock:ai:profile:{user_id}",
+            wait_timeout=2.0,
+            lease_timeout=120.0,
+        )
+        try:
+            async with lock as acquired:
+                if acquired:
+                    # 等待锁期间可能已经由前一个请求写入，必须二次检查缓存。
+                    cached = await self._read_cached_profile(cache_key, user_id)
+                    if cached is not None:
+                        return cached
+                    return await self._aggregate_and_cache(cache_key, user_id)
+        except Exception as e:
+            logger.warning("画像聚合锁不可用，继续走无锁降级: userId=%s, error=%s", user_id, e)
+
+        # Redis 暂时不可用或竞争等待超时：保持可用性，执行一次本地聚合。
+        return await self._aggregate_and_cache(cache_key, user_id)
+
+    async def _read_cached_profile(self, cache_key: str, user_id: int) -> dict | None:
         try:
             cached = await self._redis.get(cache_key)
             if cached:
                 return json.loads(cached)
         except Exception as e:
             logger.warning("读取画像缓存失败（继续聚合）: userId=%s, error=%s", user_id, e)
+        return None
 
-        # 缓存未命中，执行聚合（放线程池避免阻塞事件循环）
+    async def _aggregate_and_cache(self, cache_key: str, user_id: int) -> dict:
+        """在线程池聚合并写缓存；失败返回空画像，保证推荐主链路可用。"""
         try:
             profile = await asyncio.to_thread(self._aggregate_profile, user_id)
         except Exception as e:
             logger.error("画像聚合失败，返回空画像: userId=%s, error=%s", user_id, e, exc_info=True)
             profile = self._empty_profile()
 
-        # 写入缓存（即使空画像也缓存，避免频繁聚合失败）
         try:
             await self._redis.setex(cache_key, PROFILE_TTL, json.dumps(profile, ensure_ascii=False))
         except Exception as e:
             logger.warning("写入画像缓存失败（不影响主流程）: userId=%s, error=%s", user_id, e)
-
         return profile
 
     async def invalidate_profile(self, user_id: int):
@@ -208,6 +237,16 @@ class ProfileService:
 
                 for point in points:
                     payload = point.payload or {}
+                    # 旧数据没有 status/confidence 时按历史兼容规则视为 active。
+                    # 被用户纠正的记忆保留在 Qdrant，但不再参与画像聚合。
+                    if payload.get("status", "active") != "active":
+                        continue
+                    try:
+                        memory_confidence = float(payload.get("confidence", 1.0))
+                    except (TypeError, ValueError):
+                        memory_confidence = 0.0
+                    if memory_confidence <= 0:
+                        continue
                     signal_type = payload.get("type", "ITEM_VIEW")
                     timestamp_str = payload.get("timestamp", "")
 
@@ -225,7 +264,7 @@ class ProfileService:
                             continue
 
                     # 信号权重
-                    weight = SIGNAL_WEIGHTS.get(signal_type, 1.0)
+                    weight = SIGNAL_WEIGHTS.get(signal_type, 1.0) * memory_confidence
 
                     # 聚合风格标签
                     styles = payload.get("style_tags", [])
@@ -323,8 +362,16 @@ class ProfileService:
         # 浏览历史的 category 不直接作为 style，但可作为风格推断的辅助
         top_styles = [s for s, _ in style_counter.most_common(3)]
 
-        # 2. top_colors
-        color_counter: Counter = behavior_data["color_counter"].copy()
+        # 2. top_colors：显式负偏好优先于弱行为信号，避免用户明确拒绝后仍出现在画像 Top 中。
+        disliked_colors = {
+            color.casefold()
+            for color in normalize_color_values(preference_data.get("dislike_colors", []))
+        }
+        color_counter: Counter = Counter({
+            color: score
+            for color, score in behavior_data["color_counter"].items()
+            if not (set(normalize_color_values(color)) & disliked_colors)
+        })
         top_colors = [c for c, _ in color_counter.most_common(3)]
 
         # 3. price_distribution

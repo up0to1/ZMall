@@ -3,7 +3,7 @@ ReAct Tool Calling 工具定义和执行器
 
 反馈轮 note 非空时，LlmClient.react_feedback 调用本模块的 ToolExecutor
 执行 LLM 自主选择的 Tool：
-  - update_user_preference: 异步 upsert 用户偏好到 Qdrant
+  - update_user_preference: 异步 upsert/纠正用户偏好到 Qdrant
   - get_item_details: 批量查询 Java 商品详情
   - search_items: Qdrant 预检索（仅用于 LLM 决策参考，正式检索由节点2 完成）
 
@@ -16,7 +16,9 @@ import asyncio
 import logging
 
 from app.api.deps import (
-    get_java_client, get_qdrant_searcher, get_user_preference_updater,
+    get_embed_client, get_java_client, get_qdrant_searcher,
+    get_user_behavior_indexer, get_user_episode_store,
+    get_user_preference_updater,
 )
 from shared.qdrant_client.category_mapping import to_en
 
@@ -30,8 +32,9 @@ class ToolExecutor:
     LLM 通过 react_feedback 调用 executor.execute(tool_name, action_input)。
     """
 
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int, allow_persistent_memory: bool = False):
         self.user_id = user_id
+        self.allow_persistent_memory = allow_persistent_memory
 
     async def execute(self, tool_name: str, action_input: dict) -> dict:
         """执行 Tool
@@ -59,13 +62,16 @@ class ToolExecutor:
 
         LLM 在用户明确表示"不喜欢X色""喜欢X风"时调用。
         US-AT-24：补齐 dislike_styles 和 preferred_price_range 字段采集。
+        corrections 支持按 memory_id 将旧记忆标记为 superseded，并写入 replacement。
         """
         dislike_colors = list(action_input.get("dislike_colors") or [])
         like_styles = list(action_input.get("like_styles") or [])
         dislike_styles = list(action_input.get("dislike_styles") or [])
         preferred_price_range = action_input.get("preferred_price_range") or None
+        corrections = list(action_input.get("corrections") or [])
 
-        if not dislike_colors and not like_styles and not dislike_styles and not preferred_price_range:
+        if (not dislike_colors and not like_styles and not dislike_styles
+                and not preferred_price_range and not corrections):
             return {"success": True, "msg": "无偏好需更新"}
 
         # preferred_price_range 校验：必须是 [min, max] 形式
@@ -73,18 +79,107 @@ class ToolExecutor:
             if not (isinstance(preferred_price_range, list) and len(preferred_price_range) == 2):
                 preferred_price_range = None
 
+        # ReAct 里的普通任务约束只作用于当前反馈轮，不能因为模型推断
+        # 就直接写入跨会话画像；明确纠错仍允许执行。
+        if not self.allow_persistent_memory and not corrections:
+            logger.info(
+                "[ReAct Tool] 仅保留任务级偏好，不写入长期记忆: userId=%s",
+                self.user_id,
+            )
+            return {
+                "success": True,
+                "persisted": False,
+                "scope": "task",
+                "msg": "本轮偏好仅作用于当前任务",
+            }
+
         updater = await get_user_preference_updater()
+        correction_results = []
+        for correction in corrections:
+            if not isinstance(correction, dict):
+                correction_results.append(False)
+                continue
+            replacement = correction.get("replacement")
+            reason = correction.get("reason")
+            memory_type = correction.get("memory_type", "preference")
+            if memory_type == "episode":
+                episode_store = await get_user_episode_store()
+                if correction.get("memory_id"):
+                    corrected = await asyncio.to_thread(
+                        episode_store.supersede_memory,
+                        self.user_id,
+                        str(correction["memory_id"]),
+                        reason,
+                    )
+                elif correction.get("task_id"):
+                    corrected = await asyncio.to_thread(
+                        episode_store.supersede_by_task,
+                        self.user_id,
+                        str(correction["task_id"]),
+                        reason,
+                    )
+                else:
+                    corrected = False
+                correction_results.append(corrected)
+            elif memory_type == "behavior":
+                behavior_indexer = await get_user_behavior_indexer()
+                if correction.get("memory_id"):
+                    corrected = await asyncio.to_thread(
+                        behavior_indexer.supersede_memory,
+                        self.user_id,
+                        str(correction["memory_id"]),
+                        reason,
+                    )
+                elif correction.get("item_id") is not None:
+                    try:
+                        corrected = await asyncio.to_thread(
+                            behavior_indexer.supersede_by_item,
+                            self.user_id,
+                            int(correction["item_id"]),
+                            reason,
+                        ) > 0
+                    except (TypeError, ValueError):
+                        corrected = False
+                else:
+                    corrected = False
+                correction_results.append(corrected)
+            elif correction.get("memory_id"):
+                correction_results.append(await updater.correct_preference(
+                    self.user_id,
+                    str(correction["memory_id"]),
+                    replacement,
+                    reason,
+                ))
+            elif correction.get("kind") and "old_value" in correction:
+                correction_results.append(await updater.correct_preference_by_value(
+                    self.user_id,
+                    correction["kind"],
+                    correction["old_value"],
+                    replacement,
+                    reason,
+                ))
+            else:
+                correction_results.append(False)
         # upsert_preference 为 async（内部用分布式锁保证原子性）
-        await updater.upsert_preference(
-            self.user_id,
-            dislike_colors or None,
-            dislike_styles or None,
-            like_styles or None,
-            preferred_price_range,
-        )
+        if self.allow_persistent_memory and (
+                dislike_colors or dislike_styles or like_styles or preferred_price_range
+        ):
+            await updater.upsert_preference(
+                self.user_id,
+                dislike_colors or None,
+                dislike_styles or None,
+                like_styles or None,
+                preferred_price_range,
+            )
         logger.info("[ReAct Tool] update_user_preference: userId=%s, dislikeColors=%s, dislikeStyles=%s, likeStyles=%s, priceRange=%s",
                      self.user_id, dislike_colors, dislike_styles, like_styles, preferred_price_range)
-        return {"success": True}
+        return {
+            "success": all(correction_results) if correction_results else True,
+            "corrected": sum(1 for result in correction_results if result),
+            "correction_results": correction_results,
+            "persisted": bool(self.allow_persistent_memory),
+            "scope": "long_term" if self.allow_persistent_memory else "correction",
+        }
 
     async def _get_item_details(self, action_input: dict) -> dict:
         """批量查询 Java 商品详情
@@ -137,22 +232,27 @@ class ToolExecutor:
         # 品类中文 → 英文
         category_en = to_en(category_cn) if category_cn else None
 
-        # 需要 query_vector，但 ReAct 阶段没有向量编码
-        # 简化：用零向量 + payload 过滤（Qdrant 支持纯 payload 过滤检索）
-        # 这里用 1024 维零向量（与 item_style collection 对齐），相似度无意义，仅靠 payload 过滤返回商品
-        dummy_vector = [0.0] * 1024
+        # ReAct 预检索也使用真实文本向量，避免零向量按 payload 顺序返回无语义相关性的商品。
+        # 正式检索仍由节点2完成；这里仅返回少量候选给 LLM 参考。
+        query_text = " ".join(
+            [*style_tags, category_cn] if category_cn else style_tags
+        ).strip() or "服装搭配"
+        embed_client = await get_embed_client()
+        query_vector = await embed_client.encode_text(query_text)
+        if not query_vector:
+            return {"items": [], "error": "预检索向量编码失败"}
 
         searcher = await get_qdrant_searcher()
         results = await asyncio.to_thread(
             searcher.search_complementary_items,
-            dummy_vector,
-            shop_ids_list,  # list[int] | None，对应形参 shop_ids（MatchAny 多店过滤）
-            category_en,
-            None,  # color 由 dislike_colors 反向过滤，不正向限定
-            None,  # season 由节点2 处理，ReAct 阶段不限定
-            dislike_colors or None,
-            5,   # limit
-            0.0, # score_threshold=0，零向量相似度为 0
+            query_vector=query_vector,
+            shop_ids=shop_ids_list,
+            category=category_en,
+            color=None,
+            season=None,
+            dislike_colors=dislike_colors or None,
+            limit=5,
+            score_threshold=0.0,
         )
         # 精简返回
         simplified = []
